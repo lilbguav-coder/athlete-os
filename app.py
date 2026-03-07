@@ -201,7 +201,7 @@ def calc_body_fat(p, t, c, v):
     except: return 0
 
 # --- INTERFACE ---
-tabs = st.tabs(["Planification", "Saisie", "Santé", "Journal", "Analyses", "Records"])
+tabs = st.tabs(["Planification", "Saisie", "Santé", "Journal", "Analyses", "Records", "Bilan IA"])
 today = datetime.now().date()
 
 # ==========================================
@@ -630,3 +630,92 @@ with tabs[5]:
                 if row['nom'] not in exos_affiches:
                     c_pr[idx%3].metric(f"{row['nom']}", f"{int(row['1RM'])} kg", "Calculé", delta_color="off")
                     idx += 1
+
+
+# ==========================================
+# ONGLET 6 : BILAN IA & EXPORT PDF
+# ==========================================
+with tabs[6]:
+    st.subheader("📊 Générateur de Rapport & Bilan IA")
+    
+    # 1. Sélection de la période
+    periode = st.selectbox("Choisir la période d'analyse :", ["7 derniers jours", "30 derniers jours", "Cette année"])
+    
+    if st.button("Générer le Bilan", type="primary"):
+        # Calcul des dates
+        if periode == "7 derniers jours":
+            date_debut = today - timedelta(days=7)
+        elif periode == "30 derniers jours":
+            date_debut = today - timedelta(days=30)
+        else:
+            date_debut = today.replace(month=1, day=1)
+            
+        # Récupération des données
+        df_b = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid} AND date >= '{date_debut}'", engine)
+        
+        if df_b.empty:
+            st.warning("Aucune donnée sur cette période pour générer un bilan.")
+        else:
+            df_b['date'] = pd.to_datetime(df_b['date'])
+            
+            # --- ZONE IMPRIMABLE ---
+            st.markdown("---")
+            st.markdown(f"<h2 style='text-align: center;'>Bilan de Performance : {periode}</h2>", unsafe_allow_html=True)
+            
+            # 2. Les Chiffres Clés
+            c_k1, c_k2, c_k3, c_k4 = st.columns(4)
+            tot_dist = df_b['dist_totale'].sum()
+            tot_dur = df_b['duree'].sum() / 60 # en heures
+            moy_slp = df_b[df_b['sommeil_heures'] > 0]['sommeil_heures'].mean()
+            moy_slp = moy_slp if pd.notna(moy_slp) else 0
+            moy_vfc = df_b[df_b['vfc'] > 0]['vfc'].mean()
+            moy_vfc = moy_vfc if pd.notna(moy_vfc) else 0
+            
+            c_k1.metric("Volume Total", f"{tot_dur:.1f} h")
+            c_k2.metric("Distance Totale", f"{tot_dist:.1f} km")
+            c_k3.metric("Sommeil Moyen", f"{moy_slp:.1f} h")
+            c_k4.metric("VFC Moyenne", f"{moy_vfc:.0f} ms")
+            
+            # 3. Graphique de Charge
+            st.markdown("### Évolution de la Charge (RPE x Durée)")
+            df_efforts = df_b[df_b['type_seance'] != "Mesures"].copy()
+            if not df_efforts.empty:
+                df_efforts['charge'] = df_efforts['rpe'] * df_efforts['duree']
+                fig_charge = px.bar(df_efforts, x='date', y='charge', color='type_seance', template="plotly_dark")
+                fig_charge.update_layout(margin=dict(t=10, b=0), legend=dict(orientation="h", y=-0.3, x=0))
+                st.plotly_chart(fig_charge, use_container_width=True)
+            else:
+                st.info("Pas d'entraînements enregistrés sur cette période.")
+
+            # 4. Analyse IA
+            st.markdown("### 🤖 Analyse du Coach IA")
+            if "GEMINI_API_KEY" not in st.secrets:
+                st.error("Ajoute ta clé GEMINI_API_KEY pour générer l'analyse.")
+            else:
+                with st.spinner("Rédaction du rapport par l'IA en cours..."):
+                    try:
+                        # Préparation du résumé pour l'IA
+                        resume_txt = f"Volume d'entraînement total: {tot_dur:.1f}h. Distance courue: {tot_dist:.1f}km. Sommeil moyen: {moy_slp:.1f}h. VFC moyenne: {moy_vfc:.0f}ms."
+                        
+                        auto_model_name = get_best_gemini_model()
+                        model = genai.GenerativeModel(auto_model_name)
+                        prompt = f"Tu es un coach sportif expert de haut niveau. Analyse ce bilan pour la période '{periode}'. Voici les données brutes : {resume_txt}. Rédige un rapport professionnel en 3 parties courtes et impactantes : 1) Bilan de la charge de travail, 2) État de récupération et adaptation, 3) Recommandations pour le prochain cycle. Sois précis, objectif et encourageant. Utilise du gras pour les points clés."
+                        response = model.generate_content(prompt)
+                        st.info(response.text)
+                    except Exception as e:
+                        st.error(f"Détail du blocage IA : {e}")
+
+            # 5. Bouton Impression Web
+            st.markdown("---")
+            import streamlit.components.v1 as components
+            components.html(
+                """
+                <div style="text-align: center;">
+                    <button onclick="window.print()" style="background-color: #4A90E2; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                        🖨️ Sauvegarder en PDF / Imprimer
+                    </button>
+                    <p style="color: gray; font-size: 12px; margin-top: 10px; font-family: sans-serif;">Astuce : Dans la fenêtre d'impression, choisissez la destination "Enregistrer au format PDF" et désactivez "En-têtes et pieds de page" pour un rendu parfait.</p>
+                </div>
+                """,
+                height=100
+            )
