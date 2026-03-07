@@ -10,8 +10,9 @@ import calendar
 import ast
 import os
 import math
+import bcrypt
 
-# --- CONFIG & STYLE PROFESSIONNEL ---
+# --- CONFIG & STYLE ---
 st.set_page_config(page_title="Performance OS", layout="wide")
 if not os.path.exists("uploads"): os.makedirs("uploads")
 
@@ -25,15 +26,22 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONNEXION CLOUD POSTGRESQL ---
+# --- CONNEXION CLOUD ---
 db_url = st.secrets["DATABASE_URL"]
 engine = create_engine(db_url)
 Base = declarative_base()
 
-# --- TABLES ---
+# --- TABLES AVEC USER_ID ---
+class Utilisateur(Base):
+    __tablename__ = 'utilisateurs'
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True)
+    password_hash = Column(String)
+
 class Seance(Base):
     __tablename__ = 'seances'
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
     date = Column(Date)
     type_seance = Column(String)
     rpe = Column(Integer)
@@ -54,6 +62,7 @@ class Seance(Base):
 class Sante(Base):
     __tablename__ = 'sante'
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
     date = Column(Date)
     poids = Column(Float)
     taille = Column(Float)
@@ -69,6 +78,7 @@ class Sante(Base):
 class Planification(Base):
     __tablename__ = 'planification'
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
     date = Column(Date)
     titre = Column(String)
     description = Column(Text)
@@ -77,16 +87,66 @@ class Planification(Base):
 class RecordManuel(Base):
     __tablename__ = 'records_manuels'
     id = Column(Integer, primary_key=True)
-    nom_exo = Column(String, unique=True)
+    user_id = Column(Integer)
+    nom_exo = Column(String)
     valeur_1rm = Column(Float)
 
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 db = Session()
 
+# ==========================================
+# SYSTEME D'AUTHENTIFICATION
+# ==========================================
+if 'user_id' not in st.session_state:
+    st.title("Athlète OS - Portail d'Accès")
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Se connecter")
+        with st.form("login_form"):
+            user_in = st.text_input("Identifiant")
+            pwd_in = st.text_input("Mot de passe", type="password")
+            if st.form_submit_button("Entrer"):
+                u = db.query(Utilisateur).filter(Utilisateur.username == user_in).first()
+                if u and bcrypt.checkpw(pwd_in.encode('utf-8'), u.password_hash.encode('utf-8')):
+                    st.session_state.user_id = u.id
+                    st.session_state.username = u.username
+                    st.rerun()
+                else:
+                    st.error("Identifiants incorrects.")
+                    
+    with col2:
+        st.subheader("Créer un compte")
+        with st.form("register_form"):
+            new_user = st.text_input("Nouvel Identifiant")
+            new_pwd = st.text_input("Mot de passe", type="password")
+            if st.form_submit_button("S'inscrire"):
+                if db.query(Utilisateur).filter(Utilisateur.username == new_user).first():
+                    st.error("Cet identifiant est déjà pris.")
+                elif len(new_pwd) < 4:
+                    st.warning("Mot de passe trop court.")
+                else:
+                    h_pwd = bcrypt.hashpw(new_pwd.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                    db.add(Utilisateur(username=new_user, password_hash=h_pwd))
+                    db.commit()
+                    st.success("Compte créé avec succès ! Tu peux te connecter à gauche. (Le premier compte créé récupère ton historique)")
+
+    st.stop() # Bloque l'application tant qu'on n'est pas connecté
+
+# L'utilisateur est connecté !
+uid = st.session_state.user_id
+st.sidebar.success(f"Connecté : **{st.session_state.username}**")
+if st.sidebar.button("Se déconnecter"):
+    del st.session_state.user_id
+    del st.session_state.username
+    st.rerun()
+
 # --- UTILS ---
 def get_options_exos():
-    res = db.query(Seance.exercices).all()
+    res = db.query(Seance.exercices).filter(Seance.user_id == uid).all()
     noms = set()
     for r in res:
         if r[0] and r[0] not in ["None", "[]"]:
@@ -132,7 +192,7 @@ today = datetime.now().date()
 # ==========================================
 with tabs[0]: 
     st.header("Plan d'entraînement journalier")
-    plan_today = db.query(Planification).filter(Planification.date == today).all()
+    plan_today = db.query(Planification).filter(Planification.date == today, Planification.user_id == uid).all()
     if plan_today:
         for p in plan_today:
             st.info(f"**Séance du jour : {p.titre}**\n\n{p.description}")
@@ -148,7 +208,7 @@ with tabs[0]:
     with col_p1:
         st.subheader("Consultation et Édition")
         date_vue = st.date_input("Sélectionner la date", today, key="plan_view")
-        plan_jour = db.query(Planification).filter(Planification.date == date_vue).all()
+        plan_jour = db.query(Planification).filter(Planification.date == date_vue, Planification.user_id == uid).all()
         if plan_jour:
             for p in plan_jour:
                 with st.expander(f"Détails : {p.titre}", expanded=True):
@@ -172,7 +232,7 @@ with tabs[0]:
             p_titre = st.text_input("Intitulé de la séance")
             p_desc = st.text_area("Descriptif technique")
             if st.form_submit_button("Ajouter au calendrier"):
-                db.add(Planification(date=p_date, titre=p_titre, description=p_desc, statut="Programmé"))
+                db.add(Planification(user_id=uid, date=p_date, titre=p_titre, description=p_desc, statut="Programmé"))
                 db.commit(); st.success("Séance programmée."); st.rerun()
 
 # ==========================================
@@ -185,7 +245,7 @@ with tabs[1]:
         st.subheader("Récupération de la nuit")
         d_date_matin = st.date_input("Date", today, key="date_matin")
         
-        exist_m = db.query(Seance).filter(Seance.date == d_date_matin).first()
+        exist_m = db.query(Seance).filter(Seance.date == d_date_matin, Seance.user_id == uid).first()
         def_slp = float(exist_m.sommeil_heures) if exist_m and exist_m.sommeil_heures else 7.5
         def_slp_q = int(exist_m.sommeil_qualite) if exist_m and exist_m.sommeil_qualite else 7
         def_vfc = int(exist_m.vfc) if exist_m and exist_m.vfc else 0
@@ -205,13 +265,13 @@ with tabs[1]:
         motiv = st.select_slider("Motivation pour aujourd'hui", [1,2,3,4,5], value=4, key="motiv_m")
         
         if st.button("Sauvegarder mes constantes", type="primary"):
-            records = db.query(Seance).filter(Seance.date == d_date_matin).all()
+            records = db.query(Seance).filter(Seance.date == d_date_matin, Seance.user_id == uid).all()
             if records:
-                db.query(Seance).filter(Seance.date == d_date_matin).update({
+                db.query(Seance).filter(Seance.date == d_date_matin, Seance.user_id == uid).update({
                     "sommeil_heures": slp, "sommeil_qualite": slp_q, "vfc": vfc, "fc_nocturne": fcn, "pre_check": str({"stress": stress, "motiv": motiv})
                 })
             else:
-                db.add(Seance(date=d_date_matin, type_seance="Mesures", rpe=0, duree=0,
+                db.add(Seance(user_id=uid, date=d_date_matin, type_seance="Mesures", rpe=0, duree=0,
                               sommeil_heures=slp, sommeil_qualite=slp_q, vfc=vfc, fc_nocturne=fcn,
                               pre_check=str({"stress": stress, "motiv": motiv})))
             db.commit()
@@ -257,14 +317,14 @@ with tabs[1]:
                 if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": s, "r": r, "p": p})
 
         if st.button("Enregistrer ma séance", type="primary"):
-            base = db.query(Seance).filter(Seance.date == d_date_ent).first()
+            base = db.query(Seance).filter(Seance.date == d_date_ent, Seance.user_id == uid).first()
             i_slp = base.sommeil_heures if base else 0.0
             i_slpq = base.sommeil_qualite if base else 0
             i_vfc = base.vfc if base else 0
             i_fcn = base.fc_nocturne if base else 0
             i_pre = base.pre_check if base else "{}"
             
-            db.add(Seance(date=d_date_ent, type_seance=mode, rpe=rpe, duree=dur, 
+            db.add(Seance(user_id=uid, date=d_date_ent, type_seance=mode, rpe=rpe, duree=dur, 
                           exercices=str(current_exos), intervalles=str(st.session_state.get('blks', [])), dist_totale=dist_tot, allure_moy=allure_m, fc_moy=fc_moy,
                           sommeil_heures=i_slp, sommeil_qualite=i_slpq, vfc=i_vfc, fc_nocturne=i_fcn, chaussures=shoe, 
                           pre_check=i_pre, image_fc=img_path))
@@ -293,7 +353,7 @@ with tabs[2]:
         h_grav = st.slider("Index de douleur (0-10)", 0, 10, 0)
         if st.form_submit_button("Valider la mesure"):
             mg = calc_body_fat(h_poids, h_taille, h_cou, h_ventre)
-            db.add(Sante(date=h_date, poids=h_poids if h_poids > 0 else None, taille=h_taille, cou=h_cou, ventre=h_ventre, mg_estimee=mg if mg > 0 else None, calories=h_cal if h_cal > 0 else None, proteines=h_prot, blessure_nom=h_bless, blessure_gravite=h_grav))
+            db.add(Sante(user_id=uid, date=h_date, poids=h_poids if h_poids > 0 else None, taille=h_taille, cou=h_cou, ventre=h_ventre, mg_estimee=mg if mg > 0 else None, calories=h_cal if h_cal > 0 else None, proteines=h_prot, blessure_nom=h_bless, blessure_gravite=h_grav))
             db.commit(); st.success("Mesures ajoutées au registre.")
 
 # ==========================================
@@ -319,7 +379,7 @@ with tabs[3]:
             
     col_nav2.markdown(f"<h3 style='text-align: center;'>{calendar.month_name[st.session_state.cal_month]} {st.session_state.cal_year}</h3>", unsafe_allow_html=True)
 
-    df_all = pd.read_sql("SELECT * FROM seances", engine)
+    df_all = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid}", engine)
     if not df_all.empty:
         df_all['date'] = pd.to_datetime(df_all['date'])
         df_mois = df_all[(df_all['date'].dt.month == st.session_state.cal_month) & (df_all['date'].dt.year == st.session_state.cal_year)].copy()
@@ -351,7 +411,7 @@ with tabs[3]:
     st.divider()
     st.subheader(f"Données du {st.session_state.sel_date.strftime('%d/%m/%Y')}")
     
-    s_detail = db.query(Seance).filter(Seance.date == st.session_state.sel_date).all()
+    s_detail = db.query(Seance).filter(Seance.date == st.session_state.sel_date, Seance.user_id == uid).all()
     if s_detail:
         for row in s_detail:
             if row.type_seance == "Mesures": continue 
@@ -371,33 +431,33 @@ with tabs[3]:
                 with st.popover("Éditer"):
                     with st.form(f"edit_{row.id}"):
                         new_rpe = st.number_input("Correction RPE", 0, 10, int(row.rpe))
-                        new_dur = st.number_input("Correction Volume (min)", 0, 500, int(row.duree))
-                        new_slp = st.number_input("Correction Sommeil (h)", 0.0, 15.0, float(row.sommeil_heures or 0))
+                        new_dur = st.number_input("Correction Vol", 0, 500, int(row.duree))
+                        new_slp = st.number_input("Correction Sommeil", 0.0, 15.0, float(row.sommeil_heures or 0))
                         new_vfc = st.number_input("Correction VFC", 0, 250, int(row.vfc or 0))
                         if st.form_submit_button("Appliquer"):
-                            db.query(Seance).filter(Seance.date == row.date).update({"sommeil_heures": new_slp, "vfc": new_vfc})
-                            db.query(Seance).filter(Seance.id == row.id).update({"rpe": new_rpe, "duree": new_dur})
+                            db.query(Seance).filter(Seance.date == row.date, Seance.user_id == uid).update({"sommeil_heures": new_slp, "vfc": new_vfc})
+                            db.query(Seance).filter(Seance.id == row.id, Seance.user_id == uid).update({"rpe": new_rpe, "duree": new_dur})
                             db.commit(); st.rerun()
                 if st.button("Supprimer", key=f"del_{row.id}"):
-                    db.query(Seance).filter(Seance.id == row.id).delete()
+                    db.query(Seance).filter(Seance.id == row.id, Seance.user_id == uid).delete()
                     db.commit(); st.rerun()
-    else: st.info("Aucune donnée d'entraînement indexée pour cette date.")
+    else: st.info("Aucune donnée pour cette date.")
 
 # ==========================================
 # ONGLET 4 : ANALYSES
 # ==========================================
 with tabs[4]: 
-    df_c = pd.read_sql("SELECT * FROM seances", engine)
+    df_c = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid}", engine)
     if not df_c.empty:
         df_c['date'] = pd.to_datetime(df_c['date'])
         
         c_filt1, c_filt2 = st.columns([1, 2])
-        filtre_mode = c_filt1.radio("Fenêtre d'analyse", ["Base de données globale", "Période spécifiée"], horizontal=True)
+        filtre_mode = c_filt1.radio("Fenêtre d'analyse", ["Base globale", "Période spécifiée"], horizontal=True)
         if filtre_mode == "Période spécifiée":
             dates = c_filt2.date_input("Bornes temporelles", [today - timedelta(days=30), today])
             if len(dates) == 2: df_c = df_c[(df_c['date'] >= pd.to_datetime(dates[0])) & (df_c['date'] <= pd.to_datetime(dates[1]))]
         
-        if df_c.empty: st.warning("Données insuffisantes sur ce segment.")
+        if df_c.empty: st.warning("Données insuffisantes.")
         else:
             st.subheader("Analyse du Sommeil")
             df_sleep = df_c[df_c['sommeil_heures'] > 0].groupby('date').max().reset_index().sort_values('date')
@@ -407,13 +467,6 @@ with tabs[4]:
                 fig_sleep.add_trace(go.Scatter(x=df_sleep['date'], y=df_sleep['sommeil_qualite'], name="Index Qualité (1-10)", mode='lines+markers', line=dict(color="#5BC0BE")), secondary_y=True)
                 fig_sleep.update_layout(template="plotly_dark", barmode='group', margin=dict(t=30, b=0))
                 st.plotly_chart(fig_sleep, use_container_width=True)
-
-                st.subheader("Réponse du Système Nerveux (VFC & FC Repos)")
-                fig_physio = go.Figure()
-                fig_physio.add_trace(go.Scatter(x=df_sleep['date'], y=df_sleep['vfc'], name="Variabilité (VFC ms)", mode='lines+markers', line=dict(color="#2E86AB")))
-                fig_physio.add_trace(go.Scatter(x=df_sleep['date'], y=df_sleep['fc_nocturne'], name="FC Nocturne (bpm)", mode='lines', line=dict(color="#E71D36", dash="dot")))
-                fig_physio.update_layout(template="plotly_dark", margin=dict(t=30, b=0))
-                st.plotly_chart(fig_physio, use_container_width=True)
 
             st.divider()
             col_d1, col_d2 = st.columns(2)
@@ -431,25 +484,7 @@ with tabs[4]:
                 fig_acwr.update_layout(template="plotly_dark", margin=dict(t=30, b=0))
                 st.plotly_chart(fig_acwr, use_container_width=True)
                 
-                st.subheader("Distribution des Intensités (80/20)")
-                low_int = df_efforts[df_efforts['rpe'] <= 4]['duree'].sum()
-                high_int = df_efforts[df_efforts['rpe'] > 4]['duree'].sum()
-                if low_int > 0 or high_int > 0:
-                    fig_pie = px.pie(values=[low_int, high_int], names=['Volume Faible Intensité (Z1-Z2)', 'Volume Haute Intensité (Z3+)'], color_discrete_sequence=['#4A90E2', '#E53935'])
-                    fig_pie.update_layout(template="plotly_dark", margin=dict(t=30, b=0))
-                    st.plotly_chart(fig_pie, use_container_width=True)
-
             with col_d2:
-                st.subheader("Dérive Cardiaque (Efficacité Aérobie)")
-                df_run = df_c[(df_c['type_seance'] == "Course") & (df_c['fc_moy'] > 0)].copy()
-                if not df_run.empty:
-                    df_run['allure_sec'] = df_run['allure_moy'].apply(allure_to_sec)
-                    df_run['vitesse_kmh'] = df_run['allure_sec'].apply(lambda x: 3600/x if x > 0 else 0)
-                    df_run['efficiency'] = df_run.apply(lambda r: r['vitesse_kmh'] / r['fc_moy'] if r['fc_moy'] > 0 else 0, axis=1)
-                    fig_eff = px.line(df_run[df_run['efficiency'] > 0], x='date', y='efficiency', markers=True)
-                    fig_eff.update_layout(template="plotly_dark", margin=dict(t=30, b=0))
-                    st.plotly_chart(fig_eff, use_container_width=True)
-                    
                 st.subheader("Distribution du Tonnage")
                 t_list = []
                 for ex_str in df_c['exercices'].dropna():
@@ -465,66 +500,41 @@ with tabs[4]:
 # ONGLET 5 : RECORDS
 # ==========================================
 with tabs[5]: 
-    df_r = pd.read_sql("SELECT * FROM seances", engine)
-    
-    st.subheader("Modélisation des performances de course")
+    df_r = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid}", engine)
+    st.subheader("Modélisation Course")
     if not df_r.empty:
         df_run = df_r[(df_r['type_seance'] == "Course") & (df_r['dist_totale'] >= 1.0)].copy()
         if not df_run.empty:
             df_run['sec_tot'] = df_run['allure_moy'].apply(allure_to_sec) * df_run['dist_totale']
             df_run_valide = df_run[df_run['sec_tot'] > 0].copy()
-            
             if not df_run_valide.empty:
                 df_run_valide['score_10k'] = df_run_valide.apply(lambda r: estimate_riegel(r['dist_totale'], r['sec_tot'], 10.0), axis=1)
                 best_perf = df_run_valide.loc[df_run_valide['score_10k'].idxmin()]
-                
-                d_str = pd.to_datetime(best_perf['date']).strftime('%d/%m/%Y')
-                st.success(f"Référence aérobie détectée : {best_perf['dist_totale']} km à {best_perf['allure_moy']} min/km (Effectuée le {d_str})")
+                st.success(f"Référence détectée : {best_perf['dist_totale']} km à {best_perf['allure_moy']} min/km")
                 
                 targets = [1, 5, 10, 21.1, 42.2]
                 cols_run = st.columns(5)
-                
-                tous_les_efforts = []
-                for _, r in df_run_valide.iterrows():
-                    tous_les_efforts.append({'dist': r['dist_totale'], 'allure': r['allure_moy']})
-                    if r['intervalles'] and r['intervalles'] not in ["[]", "None"]:
-                        try:
-                            blks = ast.literal_eval(r['intervalles'])
-                            for b in blks:
-                                if b.get('dist', 0) > 0: tous_les_efforts.append({'dist': b['dist'], 'allure': b['allure']})
-                        except: pass
-                
-                df_efforts = pd.DataFrame(tous_les_efforts)
-                df_efforts['sec'] = df_efforts['allure'].apply(allure_to_sec)
-                
                 for i, t in enumerate(targets):
                     t_sec = estimate_riegel(best_perf['dist_totale'], best_perf['sec_tot'], t)
-                    pot_time = sec_to_time_str(t_sec)
-                    
-                    reel = df_efforts[(df_efforts['dist'] >= t*0.9) & (df_efforts['dist'] <= t*1.1)].copy()
-                    reel_str = reel.sort_values('sec').iloc[0]['allure'] if not reel.empty else "Non évalué"
-                    
-                    cols_run[i].metric(f"{t} km", f"{pot_time}", f"Record validé : {reel_str}", delta_color="off")
-        else: st.info("Volume de données aérobie insuffisant pour générer un modèle prédictif.")
+                    cols_run[i].metric(f"{t} km", f"{sec_to_time_str(t_sec)}", delta_color="off")
+        else: st.info("Volume aérobie insuffisant.")
 
     st.divider()
-    
     col_rec1, col_rec2 = st.columns([2, 1])
     with col_rec2:
-        st.subheader("Calibrage manuel (1RM)")
-        options_force = get_options_exos()
+        st.subheader("Calibrage 1RM")
         with st.form("add_manual_pr"):
-            m_exo = st.selectbox("Mouvement", [""] + options_force)
-            m_val = st.number_input("Valeur absolue (kg)", 0.0)
-            if st.form_submit_button("Sauvegarder la calibration"):
+            m_exo = st.selectbox("Mouvement", [""] + get_options_exos())
+            m_val = st.number_input("Valeur (kg)", 0.0)
+            if st.form_submit_button("Sauvegarder"):
                 if m_exo and m_val > 0:
-                    db.query(RecordManuel).filter(RecordManuel.nom_exo == m_exo).delete()
-                    db.add(RecordManuel(nom_exo=m_exo, valeur_1rm=m_val))
-                    db.commit(); st.success("Calibration enregistrée."); st.rerun()
+                    db.query(RecordManuel).filter(RecordManuel.nom_exo == m_exo, RecordManuel.user_id == uid).delete()
+                    db.add(RecordManuel(user_id=uid, nom_exo=m_exo, valeur_1rm=m_val))
+                    db.commit(); st.success("Enregistré."); st.rerun()
                     
     with col_rec1:
         st.subheader("Performances Maximales (Force)")
-        manuels = pd.read_sql("SELECT * FROM records_manuels", engine)
+        manuels = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid}", engine)
         dict_manuels = dict(zip(manuels.nom_exo, manuels.valeur_1rm)) if not manuels.empty else {}
 
         all_exos = []
@@ -532,8 +542,7 @@ with tabs[5]:
             for row in df_r['exercices'].dropna():
                 if row not in ["None", "[]"]:
                     try: 
-                        exos_list = ast.literal_eval(row)
-                        for ex in exos_list:
+                        for ex in ast.literal_eval(row):
                             if ex.get('p', 0) > 0 and ex.get('r', 0) > 0:
                                 ex['nom'] = ex.get('nom', '').strip().title()
                                 all_exos.append(ex)
@@ -552,13 +561,13 @@ with tabs[5]:
             exos_affiches = set()
             
             for exo, val in dict_manuels.items():
-                c_pr[idx%3].metric(f"{exo}", f"{int(val)} kg", "Calibration Manuelle", delta_color="off")
+                c_pr[idx%3].metric(f"{exo}", f"{int(val)} kg", "Manuel", delta_color="off")
                 exos_affiches.add(exo)
                 idx += 1
                 
             for _, row in best_pr.iterrows():
                 if row['nom'] not in exos_affiches:
-                    c_pr[idx%3].metric(f"{row['nom']}", f"{int(row['1RM'])} kg", f"Calcul algorithmique ({row['p']}kg x {row['r']})", delta_color="off")
+                    c_pr[idx%3].metric(f"{row['nom']}", f"{int(row['1RM'])} kg", f"Calculé", delta_color="off")
                     idx += 1
         else:
-            st.info("Aucun mouvement sous contrainte enregistré.")
+            st.info("Aucun mouvement enregistré.")
