@@ -311,25 +311,54 @@ with tabs[1]:
 # ONGLET 2 : SANTÉ
 # ==========================================
 with tabs[2]: 
-    st.subheader("Suivi de composition corporelle et lésions")
-    with st.form("sante_pro"):
-        c1, c2 = st.columns(2)
-        h_date = c1.date_input("Date de la mesure", today)
-        h_poids = c2.number_input("Masse corporelle (kg)", 0.0)
-        h_taille = c1.number_input("Stature (cm)", 175.0)
-        h_ventre = c2.number_input("Circonférence abdominale (cm)", 80.0)
-        h_cou = c1.number_input("Circonférence nuque (cm)", 38.0)
-        st.markdown("---")
-        c3, c4 = st.columns(2)
-        h_cal = c3.number_input("Apport calorique (kcal)", 0)
-        h_prot = c4.number_input("Apport protéique (g)", 0)
-        st.markdown("---")
-        h_bless = st.selectbox("Localisation de lésion", ["Aucune", "Genou", "Bas du dos", "Epaule", "Cheville", "Ischios"])
-        h_grav = st.slider("Index de douleur (0-10)", 0, 10, 0)
-        if st.form_submit_button("Valider la mesure"):
-            mg = calc_body_fat(h_poids, h_taille, h_cou, h_ventre)
-            db.add(Sante(user_id=uid, date=h_date, poids=h_poids if h_poids > 0 else None, taille=h_taille, cou=h_cou, ventre=h_ventre, mg_estimee=mg if mg > 0 else None, calories=h_cal if h_cal > 0 else None, proteines=h_prot, blessure_nom=h_bless, blessure_gravite=h_grav))
-            db.commit(); st.success("Mesures ajoutées au registre.")
+    st.subheader("Carnet de Santé")
+    h_date = st.date_input("Date de la mesure", today, key="date_sante")
+    
+    # On va chercher s'il y a déjà des données existantes pour cette date
+    exist_s = db.query(Sante).filter(Sante.date == h_date, Sante.user_id == uid).first()
+    
+    with st.expander("⚖️ Poids & Mensurations", expanded=True):
+        with st.form("form_mensurations"):
+            c1, c2 = st.columns(2)
+            h_poids = c1.number_input("Poids (kg)", 0.0, 200.0, float(exist_s.poids) if exist_s and exist_s.poids else 0.0)
+            h_taille = c2.number_input("Taille (cm)", 0.0, 250.0, float(exist_s.taille) if exist_s and exist_s.taille else 0.0)
+            h_ventre = c1.number_input("Ventre (cm)", 0.0, 200.0, float(exist_s.ventre) if exist_s and exist_s.ventre else 0.0)
+            h_cou = c2.number_input("Cou (cm)", 0.0, 100.0, float(exist_s.cou) if exist_s and exist_s.cou else 0.0)
+            
+            if st.form_submit_button("Valider Mensurations"):
+                mg = calc_body_fat(h_poids, h_taille, h_cou, h_ventre) if h_poids>0 and h_taille>0 and h_ventre>0 and h_cou>0 else None
+                if exist_s:
+                    db.query(Sante).filter(Sante.id == exist_s.id).update({"poids": h_poids or None, "taille": h_taille or None, "ventre": h_ventre or None, "cou": h_cou or None, "mg_estimee": mg})
+                else:
+                    db.add(Sante(user_id=uid, date=h_date, poids=h_poids or None, taille=h_taille or None, ventre=h_ventre or None, cou=h_cou or None, mg_estimee=mg))
+                db.commit(); st.rerun()
+
+    with st.expander("🍎 Nutrition journalière"):
+        with st.form("form_nutrition"):
+            c3, c4 = st.columns(2)
+            h_cal = c3.number_input("Calories (kcal)", 0, 10000, int(exist_s.calories) if exist_s and exist_s.calories else 0)
+            h_prot = c4.number_input("Protéines (g)", 0, 500, int(exist_s.proteines) if exist_s and exist_s.proteines else 0)
+            
+            if st.form_submit_button("Valider Nutrition"):
+                if exist_s:
+                    db.query(Sante).filter(Sante.id == exist_s.id).update({"calories": h_cal or None, "proteines": h_prot or None})
+                else:
+                    db.add(Sante(user_id=uid, date=h_date, calories=h_cal or None, proteines=h_prot or None))
+                db.commit(); st.rerun()
+
+    with st.expander("🩹 Suivi des Douleurs"):
+        with st.form("form_blessures"):
+            bless_list = ["Aucune", "Genou", "Bas du dos", "Epaule", "Cheville", "Ischios", "Autre"]
+            idx_b = bless_list.index(exist_s.blessure_nom) if exist_s and exist_s.blessure_nom in bless_list else 0
+            h_bless = st.selectbox("Localisation", bless_list, index=idx_b)
+            h_grav = st.slider("Douleur (0-10)", 0, 10, int(exist_s.blessure_gravite) if exist_s and exist_s.blessure_gravite else 0)
+            
+            if st.form_submit_button("Valider Douleur"):
+                if exist_s:
+                    db.query(Sante).filter(Sante.id == exist_s.id).update({"blessure_nom": h_bless, "blessure_gravite": h_grav})
+                else:
+                    db.add(Sante(user_id=uid, date=h_date, blessure_nom=h_bless, blessure_gravite=h_grav))
+                db.commit(); st.rerun()
 
 # ==========================================
 # ONGLET 3 : JOURNAL
