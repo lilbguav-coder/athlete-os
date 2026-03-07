@@ -699,8 +699,12 @@ with tabs[6]:
             st.markdown(f"<h4 style='text-align: center; color: #4A90E2;'>Athlète : {st.session_state.username.upper()} | Coach : LILIAN</h4>", unsafe_allow_html=True)
             st.write("") # Petit espace
             
-            # 2. Les Chiffres Clés
+            # 2. Les Chiffres Clés (Améliorés)
+            st.markdown("### 📈 Indicateurs de Performance")
             c_k1, c_k2, c_k3, c_k4 = st.columns(4)
+            c_k5, c_k6, c_k7, c_k8 = st.columns(4)
+            
+            # -- Calculs de base --
             tot_dist = df_b['dist_totale'].sum()
             tot_dur = df_b['duree'].sum() / 60 # en heures
             moy_slp = df_b[df_b['sommeil_heures'] > 0]['sommeil_heures'].mean()
@@ -708,43 +712,73 @@ with tabs[6]:
             moy_vfc = df_b[df_b['vfc'] > 0]['vfc'].mean()
             moy_vfc = moy_vfc if pd.notna(moy_vfc) else 0
             
-            c_k1.metric("Volume Total", f"{tot_dur:.1f} h")
-            c_k2.metric("Distance Totale", f"{tot_dist:.1f} km")
-            c_k3.metric("Sommeil Moyen", f"{moy_slp:.1f} h")
-            c_k4.metric("VFC Moyenne", f"{moy_vfc:.0f} ms")
-            
-            # 3. Graphique de Charge
-            st.markdown("### Évolution de la Charge (RPE x Durée)")
+            # -- NOUVEAUX CALCULS DE PERFORMANCE --
+            # Charge Totale et Intensité
             df_efforts = df_b[df_b['type_seance'] != "Mesures"].copy()
             if not df_efforts.empty:
                 df_efforts['charge'] = df_efforts['rpe'] * df_efforts['duree']
+                charge_totale = df_efforts['charge'].sum()
+                rpe_moyen = df_efforts['rpe'].mean()
+            else:
+                charge_totale, rpe_moyen = 0, 0
+
+            # Tonnage Total (Volume de force)
+            tonnage_total = 0
+            for ex_str in df_b['exercices'].dropna():
+                if ex_str not in ["[]", "None"]:
+                    try:
+                        for ex in ast.literal_eval(ex_str):
+                            tonnage_total += ex.get('s', 0) * ex.get('r', 0) * ex.get('p', 0)
+                    except: pass
+                    
+            # Allure Moyenne Course (Pondérée)
+            df_run = df_b[(df_b['type_seance'] == "Course") & (df_b['dist_totale'] > 0)].copy()
+            allure_moy_globale = "00:00"
+            if not df_run.empty:
+                df_run['sec_tot'] = df_run['allure_moy'].apply(allure_to_sec) * df_run['dist_totale']
+                sec_moy_km = df_run['sec_tot'].sum() / df_run['dist_totale'].sum()
+                allure_moy_globale = sec_to_allure(sec_moy_km)
+
+            # -- Affichage dans les colonnes --
+            c_k1.metric("Volume Global", f"{tot_dur:.1f} h")
+            c_k2.metric("Distance Course", f"{tot_dist:.1f} km")
+            c_k3.metric("Tonnage Soulevé", f"{tonnage_total/1000:.1f} t" if tonnage_total > 0 else "0 t")
+            c_k4.metric("Charge Cumulée", f"{int(charge_totale)} pts")
+            
+            c_k5.metric("Sommeil Moyen", f"{moy_slp:.1f} h")
+            c_k6.metric("VFC Moyenne", f"{moy_vfc:.0f} ms")
+            c_k7.metric("Allure Moy. Course", f"{allure_moy_globale} /km")
+            c_k8.metric("Intensité Moy. (RPE)", f"{rpe_moyen:.1f} /10")
+            
+            # 3. Graphique de Charge
+            st.markdown("---")
+            st.markdown("### Évolution de la Charge (RPE x Durée)")
+            if not df_efforts.empty:
                 fig_charge = px.bar(df_efforts, x='date', y='charge', color='type_seance', template="plotly_dark")
                 fig_charge.update_layout(margin=dict(t=10, b=0), legend=dict(orientation="h", y=-0.3, x=0))
                 st.plotly_chart(fig_charge, use_container_width=True)
             else:
                 st.info("Pas d'entraînements enregistrés sur cette période.")
 
-            # 4. Analyse IA PERSONNALISÉE
+            # 4. Analyse IA PERSONNALISÉE avec les nouvelles metrics
             st.markdown("### 🤖 Analyse du Coach Lilian")
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("Ajoute ta clé GEMINI_API_KEY pour générer l'analyse.")
             else:
                 with st.spinner("Rédaction du rapport par l'IA en cours..."):
                     try:
-                        # Préparation du résumé pour l'IA
-                        resume_txt = f"Volume d'entraînement total: {tot_dur:.1f}h. Distance courue: {tot_dist:.1f}km. Sommeil moyen: {moy_slp:.1f}h. VFC moyenne: {moy_vfc:.0f}ms."
+                        # LE NOUVEAU RÉSUMÉ ULTRA COMPLET POUR L'IA
+                        resume_txt = f"Volume global: {tot_dur:.1f}h. Distance: {tot_dist:.1f}km (Allure moy: {allure_moy_globale}/km). Tonnage force: {tonnage_total}kg. Charge cumulée: {int(charge_totale)} pts (RPE moy: {rpe_moyen:.1f}/10). Sommeil moy: {moy_slp:.1f}h. VFC moy: {moy_vfc:.0f}ms."
                         
                         auto_model_name = get_best_gemini_model()
                         model = genai.GenerativeModel(auto_model_name)
                         
-                        # --- MODIFICATION DU PROMPT ICI ---
-                        prompt = f"Tu es Lilian, un coach sportif expert de haut niveau. Tu t'adresses directement à ton athlète qui s'appelle '{st.session_state.username}'. Analyse son bilan pour la période '{periode}'. Voici ses données brutes : {resume_txt}. Rédige un rapport professionnel en 3 parties courtes et impactantes : 1) Bilan de la charge de travail, 2) État de récupération et adaptation, 3) Recommandations pour le prochain cycle. Tu dois l'appeler par son prénom, utiliser un ton professionnel mais proche, et signer le message obligatoirement par 'Coach Lilian'. Utilise du gras pour les points clés."
+                        prompt = f"Tu es Lilian, un coach sportif expert de haut niveau. Tu t'adresses directement à ton athlète qui s'appelle '{st.session_state.username}'. Analyse son bilan pour la période '{periode}'. Voici ses données brutes : {resume_txt}. Rédige un rapport professionnel en 3 parties courtes et impactantes : 1) Analyse de la charge de travail et du volume (note bien ses allures et son tonnage s'il y en a), 2) État de récupération, 3) Recommandations pour le prochain cycle. Tu dois l'appeler par son prénom, utiliser un ton pro mais motivant, et signer par 'Coach Lilian'. Utilise du gras pour les points clés."
                         
                         response = model.generate_content(prompt)
                         st.info(response.text)
                     except Exception as e:
                         st.error(f"Détail du blocage IA : {e}")
-
             # 5. Bouton Impression Web
             st.markdown("---")
             import streamlit.components.v1 as components
