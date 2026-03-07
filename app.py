@@ -21,10 +21,26 @@ if not os.path.exists("uploads"): os.makedirs("uploads")
 
 st.markdown("""
     <style>
+    /* 1. Police et design de base */
     body { font-family: 'Inter', sans-serif; }
     .stMetric { background-color: #1A1A1D; padding: 15px; border-radius: 8px; border-left: 4px solid #4A90E2; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     h1, h2, h3 { color: #E0E0E0; font-weight: 500; }
     hr { border-color: #333; }
+    
+    /* 2. MODE APPLICATION NATIVE (Masquer l'interface Streamlit) */
+    #MainMenu {visibility: hidden;} /* Masque le menu hamburger en haut à droite */
+    footer {visibility: hidden;} /* Masque le "Made with Streamlit" en bas */
+    header {visibility: hidden;} /* Masque la barre supérieure (Deploy, etc.) */
+    
+    /* 3. OPTIMISATION SMARTPHONE */
+    /* Empêche l'iPhone de zoomer automatiquement quand on tape dans une case */
+    input[type="text"], input[type="number"], textarea {
+        font-size: 16px !important;
+    }
+    /* Ajoute un peu de marge en haut pour éviter l'encoche/caméra du téléphone */
+    .block-container {
+        padding-top: 2rem;
+    }
     </style>
     """, unsafe_allow_html=True)
 
