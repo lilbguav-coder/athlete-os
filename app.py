@@ -776,14 +776,16 @@ with tabs[5]:
         if best_pr_dict:
             sorted_prs = sorted(best_pr_dict.items(), key=lambda x: x[1]['1RM'], reverse=True)
             
-           c_pr = st.columns(3)
+            c_pr = st.columns(3)
             for idx, (exo, data) in enumerate(sorted_prs):
-                with c_pr[idx%3]:
+                with c_pr[idx % 3]:
                     st.metric(f"{exo}", f"{int(data['1RM'])} kg", data['source'], delta_color="off")
-                    if data['date']:
+                    if data.get('date'):
                         if st.button(f"🔍 {pd.to_datetime(data['date']).strftime('%d/%m/%Y')}", key=f"btn_force_{exo}"):
                             st.session_state.sel_date = pd.to_datetime(data['date']).date()
                             st.rerun()
+        else:
+            st.info("Aucune donnée de musculation enregistrée.")
 
 # ==========================================
 # ONGLET 6 : BILAN IA & EXPORT PDF
