@@ -235,7 +235,7 @@ with tabs[0]:
                         response = model.generate_content(prompt)
                         st.success(response.text)
                     except Exception as e:
-                        st.error("Erreur avec l'IA. Vérifie ta clé API.")
+                        st.error(f"Détail du blocage : {e}")
 
 # ==========================================
 # ONGLET 1 : SAISIE & GARMIN
