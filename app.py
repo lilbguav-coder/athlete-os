@@ -230,7 +230,7 @@ with tabs[0]:
                         recent = db.query(Seance).filter(Seance.user_id == uid).order_by(Seance.date.desc()).first()
                         vfc_txt = f"VFC: {recent.vfc}ms, Sommeil: {recent.sommeil_heures}h." if recent else "Pas de données récentes."
                         
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel('gemini-1.5-pro')
                         prompt = f"Tu es un coach sportif d'élite. L'athlète te demande une séance aujourd'hui. Voici ses dernières constantes : {vfc_txt}. Propose-lui une seule séance courte et efficace (course ou force) adaptée à son état, en 3 lignes maximum. Sois direct et motivant."
                         response = model.generate_content(prompt)
                         st.success(response.text)
@@ -287,7 +287,7 @@ with tabs[1]:
                                 with st.spinner("Lecture des données en cours..."):
                                     try:
                                         img = Image.open(uploaded_file)
-                                        model = genai.GenerativeModel('gemini-1.5-flash')
+                                        model = genai.GenerativeModel('gemini-1.5-pro')
                                         prompt = "Analyse cette image d'une application de course (Garmin/Strava). Renvoie uniquement un format JSON strict avec ces clés exactes : 'distance' (float, en km), 'duree' (int, en minutes totales), 'allure' (string, format MM:SS), 'fc_moyenne' (int, battements par minute). Ne mets aucun autre texte."
                                         response = model.generate_content([prompt, img])
                                         txt = response.text.replace("```json", "").replace("```", "").strip()
@@ -296,7 +296,7 @@ with tabs[1]:
                                         st.write(f"📏 Distance: {data_ia.get('distance')} km | ⏱️ Durée: {data_ia.get('duree')} min | 🏃 Allure: {data_ia.get('allure')} | ❤️ FC: {data_ia.get('fc_moyenne')} bpm")
                                         st.info("Copie ces valeurs dans les cases ci-dessous 👇")
                                     except Exception as e:
-                                        st.error(f"L'IA n'a pas pu lire l'image correctement.")
+                                        st.error(f"Détail du blocage : {e}")
 
                 c_c1, c_c2 = st.columns(2)
                 dist_tot = c_c1.number_input("Distance (km)", 0.0)
