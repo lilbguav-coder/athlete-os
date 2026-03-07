@@ -661,6 +661,9 @@ with tabs[6]:
             # --- ZONE IMPRIMABLE ---
             st.markdown("---")
             st.markdown(f"<h2 style='text-align: center;'>Bilan de Performance : {periode}</h2>", unsafe_allow_html=True)
+            # --- AJOUT DES NOMS ICI ---
+            st.markdown(f"<h4 style='text-align: center; color: #4A90E2;'>Athlète : {st.session_state.username.upper()} | Coach : LILIAN</h4>", unsafe_allow_html=True)
+            st.write("") # Petit espace
             
             # 2. Les Chiffres Clés
             c_k1, c_k2, c_k3, c_k4 = st.columns(4)
@@ -687,8 +690,8 @@ with tabs[6]:
             else:
                 st.info("Pas d'entraînements enregistrés sur cette période.")
 
-            # 4. Analyse IA
-            st.markdown("### 🤖 Analyse du Coach IA")
+            # 4. Analyse IA PERSONNALISÉE
+            st.markdown("### 🤖 Analyse du Coach Lilian")
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("Ajoute ta clé GEMINI_API_KEY pour générer l'analyse.")
             else:
@@ -699,7 +702,10 @@ with tabs[6]:
                         
                         auto_model_name = get_best_gemini_model()
                         model = genai.GenerativeModel(auto_model_name)
-                        prompt = f"Tu es un coach sportif expert de haut niveau. Analyse ce bilan pour la période '{periode}'. Voici les données brutes : {resume_txt}. Rédige un rapport professionnel en 3 parties courtes et impactantes : 1) Bilan de la charge de travail, 2) État de récupération et adaptation, 3) Recommandations pour le prochain cycle. Sois précis, objectif et encourageant. Utilise du gras pour les points clés."
+                        
+                        # --- MODIFICATION DU PROMPT ICI ---
+                        prompt = f"Tu es Lilian, un coach sportif expert de haut niveau. Tu t'adresses directement à ton athlète qui s'appelle '{st.session_state.username}'. Analyse son bilan pour la période '{periode}'. Voici ses données brutes : {resume_txt}. Rédige un rapport professionnel en 3 parties courtes et impactantes : 1) Bilan de la charge de travail, 2) État de récupération et adaptation, 3) Recommandations pour le prochain cycle. Tu dois l'appeler par son prénom, utiliser un ton professionnel mais proche, et signer le message obligatoirement par 'Coach Lilian'. Utilise du gras pour les points clés."
+                        
                         response = model.generate_content(prompt)
                         st.info(response.text)
                     except Exception as e:
@@ -712,7 +718,7 @@ with tabs[6]:
                 """
                 <div style="text-align: center;">
                     <button onclick="window.print()" style="background-color: #4A90E2; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                        🖨️ Sauvegarder en PDF / Imprimer
+                        🖨️ Sauvegarder le Rapport en PDF
                     </button>
                     <p style="color: gray; font-size: 12px; margin-top: 10px; font-family: sans-serif;">Astuce : Dans la fenêtre d'impression, choisissez la destination "Enregistrer au format PDF" et désactivez "En-têtes et pieds de page" pour un rendu parfait.</p>
                 </div>
