@@ -472,31 +472,57 @@ with tabs[3]:
 
     st.divider()
     st.subheader(f"Données du {st.session_state.sel_date.strftime('%d/%m/%Y')}")
+    
+    # On récupère toutes les entrées du jour
     s_detail = db.query(Seance).filter(Seance.date == st.session_state.sel_date, Seance.user_id == uid).all()
+    
     if s_detail:
-        for row in s_detail:
-            if row.type_seance == "Mesures": continue 
+        # 1. D'abord, on cherche s'il y a des données de santé/sommeil ce jour-là
+        # On regarde sur n'importe quelle ligne car le sommeil peut être sur une ligne "Mesures" ou "Force"
+        has_health = any(s.sommeil_heures > 0 or s.vfc > 0 for s in s_detail)
+        
+        if has_health:
+            # On prend la ligne qui a le plus de données de sommeil
+            h = max(s_detail, key=lambda s: s.sommeil_heures)
             with st.container():
-                st.markdown(f"#### {row.type_seance}")
+                st.markdown("#### 🌙 État de Forme & Sommeil")
+                c_h1, c_h2, c_h3 = st.columns(3)
+                if h.sommeil_heures: c_h1.write(f"**Sommeil:** {h.sommeil_heures}h (Qualité: {h.sommeil_qualite}/10)")
+                if h.vfc: c_h2.write(f"**VFC:** {h.vfc} ms")
+                if h.fc_nocturne: c_h3.write(f"**FC Repos:** {h.fc_nocturne} bpm")
+                st.markdown("---")
+
+        # 2. Ensuite, on affiche les séances d'entraînement
+        for row in s_detail:
+            if row.type_seance == "Mesures": continue # On a déjà géré le sommeil plus haut
+            
+            with st.container():
+                st.markdown(f"#### 🏃 {row.type_seance}")
                 st.write(f"**RPE:** {row.rpe}/10 | **Vol:** {row.duree} min")
-                if row.type_seance == "Course": st.write(f"**Distance:** {row.dist_totale} km à {row.allure_moy} min/km")
+                
+                if row.type_seance == "Course":
+                    st.write(f"**Distance:** {row.dist_totale} km à {row.allure_moy} min/km")
                 elif row.type_seance == "Cross-Training" and row.intervalles and row.intervalles != "[]":
-                    try: st.write(f"**WOD {ast.literal_eval(row.intervalles)[0].get('format', '')}** : {ast.literal_eval(row.intervalles)[0].get('score', '')}")
+                    try:
+                        wod_data = ast.literal_eval(row.intervalles)[0]
+                        st.write(f"**WOD {wod_data.get('format', '')}** : {wod_data.get('score', '')}")
                     except: pass
                 
                 if row.exercices and row.exercices not in ["[]", "None"]:
                     try:
                         for ex in ast.literal_eval(row.exercices):
-                            if ex.get('s',0) > 0: st.write(f"- {ex.get('nom','')} : {ex.get('s',0)}x{ex.get('r',0)} @ {ex.get('p',0)}kg")
-                            else: st.write(f"- {ex.get('nom','')} @ {ex.get('p',0)}kg")
+                            if ex.get('s', 0) > 0: 
+                                st.write(f"- {ex.get('nom','')} : {ex.get('s',0)}x{ex.get('r',0)} @ {ex.get('p',0)}kg")
+                            else: 
+                                st.write(f"- {ex.get('nom','')} @ {ex.get('p',0)}kg")
                     except: pass
                 
-                if st.button("🗑️ Supprimer", key=f"del_{row.id}"):
+                if st.button("🗑️ Supprimer cette séance", key=f"del_{row.id}"):
                     db.query(Seance).filter(Seance.id == row.id).delete()
                     db.commit(); st.rerun()
                 st.markdown("---")
-    else: st.info("Aucune séance ce jour.")
-
+    else:
+        st.info("Aucune donnée enregistrée pour ce jour.")
 # ==========================================
 # ONGLET 4 : ANALYSES (OPTIMISÉ MOBILE)
 # ==========================================
