@@ -230,17 +230,39 @@ with tabs[0]:
                 db.add(Planification(user_id=uid, date=p_date, titre=p_titre, description=p_desc, statut="Programmé"))
                 db.commit(); st.success("Ajouté !"); st.rerun()
 
-    with col_p2:
+with col_p2:
         st.subheader("🤖 Assistant IA")
-        st.markdown("Générer une séance optimale basée sur ta récupération actuelle.")
+        st.markdown("Générer une séance optimale basée sur tes 7 derniers jours.")
         if st.button("Consulter l'IA", type="primary"):
             if "GEMINI_API_KEY" not in st.secrets:
                 st.error("L'IA n'est pas activée. Ajoute ta GEMINI_API_KEY.")
             else:
-                with st.spinner("Analyse de tes données en cours..."):
+                with st.spinner("Analyse de ta semaine en cours..."):
                     try:
-                        recent = db.query(Seance).filter(Seance.user_id == uid).order_by(Seance.date.desc()).first()
-                        vfc_txt = f"VFC: {recent.vfc}ms, Sommeil: {recent.sommeil_heures}h." if recent else "Pas de données récentes."
+                        # --- MODIFICATION ICI : On remonte 7 jours en arrière ---
+                        sept_jours = today - timedelta(days=7)
+                        recent_sessions = db.query(Seance).filter(Seance.user_id == uid, Seance.date >= sept_jours).order_by(Seance.date.asc()).all()
+                        
+                        if recent_sessions:
+                            lignes_histo = []
+                            for s in recent_sessions:
+                                if s.type_seance == "Mesures":
+                                    if s.sommeil_heures or s.vfc:
+                                        lignes_histo.append(f"- {s.date.strftime('%d/%m')} : Nuit ({s.sommeil_heures}h sommeil, VFC {s.vfc}ms)")
+                                else:
+                                    lignes_histo.append(f"- {s.date.strftime('%d/%m')} : {s.type_seance} (Effort {s.rpe}/10, {s.duree} min)")
+                            histo_txt = "\n".join(lignes_histo)
+                        else:
+                            histo_txt = "Aucune donnée sur les 7 derniers jours."
+                        
+                        auto_model_name = get_best_gemini_model()
+                        model = genai.GenerativeModel(auto_model_name)
+                        
+                        prompt = f"Tu es un coach sportif d'élite. L'athlète te demande une séance aujourd'hui. Voici son historique de charge et de récupération des 7 derniers jours :\n{histo_txt}\n\nEn analysant cette semaine, propose-lui la meilleure séance possible aujourd'hui (course, force, cross-training ou repos total) en 3 ou 4 lignes maximum. Sois direct, précis et motivant."
+                        response = model.generate_content(prompt)
+                        st.success(f"(Modèle : {auto_model_name})\n\n{response.text}")
+                    except Exception as e:
+                        st.error(f"Détail du blocage : {e}")
                         
                         # --- LE CAMELEON EST ICI ---
                         auto_model_name = get_best_gemini_model()
