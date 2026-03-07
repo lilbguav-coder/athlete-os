@@ -128,7 +128,13 @@ class RecordManuel(Base):
     user_id = Column(Integer)
     nom_exo = Column(String)
     valeur_1rm = Column(Float)
-
+    
+class FavorisCoach(Base):
+    __tablename__ = 'favoris_coach'
+    __table_args__ = {'extend_existing': True}
+    id = Column(Integer, primary_key=True)
+    coach_id = Column(Integer)
+    athlete_id = Column(Integer)
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 db = Session()
