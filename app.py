@@ -225,7 +225,7 @@ def calc_body_fat(p, t, c, v):
 # --- INTERFACE ---
 # --- DÉFINITION DES ONGLETS DYNAMIQUES ---
 # Remplace "Lilian" par ton identifiant exact de connexion !
-PSEUDO_COACH = "Lilian" 
+PSEUDO_COACH = "Lilian135lapuenta" 
 is_coach = (st.session_state.username.lower() == PSEUDO_COACH.lower())
 
 liste_onglets = ["Planification", "Saisie", "Santé", "Journal", "Analyses", "Records", "Bilan IA"]
