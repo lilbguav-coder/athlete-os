@@ -95,6 +95,9 @@ class RecordManuel(Base):
     user_id = Column(Integer)
     nom_exo = Column(String)
     valeur_1rm = Column(Float)
+    Base.metadata.create_all(engine)
+Session = sessionmaker(bind=engine)
+db = Session()
 
 # ==========================================
 # SYSTEME D'AUTHENTIFICATION
