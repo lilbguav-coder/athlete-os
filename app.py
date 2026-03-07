@@ -637,30 +637,45 @@ with tabs[5]:
                         st.error("Format requis : MM:SS ou HH:MM:SS")
 
     with col_rc1:
-        # Récupération des records officiels de course
+        # 1. Récupération des records manuels saisis
         manuels_course = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo LIKE 'Course: %%'", engine)
         dict_manuels_course = {row['nom_exo'].replace("Course: ", ""): row['valeur_1rm'] for _, row in manuels_course.iterrows()}
         
-        # Récupération des estimations Riegel
+        # 2. Préparation des données de course pour les passages
         df_run = df_r[(df_r['type_seance'] == "Course") & (df_r['dist_totale'] >= 1.0)].copy()
         best_perf = None
         if not df_run.empty:
-            df_run['sec_tot'] = df_run['allure_moy'].apply(allure_to_sec) * df_run['dist_totale']
+            df_run['sec_km'] = df_run['allure_moy'].apply(allure_to_sec)
+            df_run['sec_tot'] = df_run['sec_km'] * df_run['dist_totale']
             df_run_valide = df_run[df_run['sec_tot'] > 0].copy()
+            
+            # Calcul de la meilleure perf relative pour l'estimation Riegel
             if not df_run_valide.empty:
                 df_run_valide['score_10k'] = df_run_valide.apply(lambda r: estimate_riegel(r['dist_totale'], r['sec_tot'], 10.0), axis=1)
                 best_perf = df_run_valide.loc[df_run_valide['score_10k'].idxmin()]
-                st.caption(f"💡 Estimations IA basées sur ta meilleure perf relative : {best_perf['dist_totale']} km à {best_perf['allure_moy']} min/km")
+                st.caption(f"💡 Base des estimations : {best_perf['dist_totale']} km à {best_perf['allure_moy']} min/km")
         
         targets_map = {"1 km": 1, "5 km": 5, "10 km": 10, "Semi-Marathon": 21.1, "Marathon": 42.2}
         cols_run = st.columns(5)
         
         for i, (nom_dist, dist_km) in enumerate(targets_map.items()):
-            # S'il y a un record officiel, on l'affiche en priorité. Sinon, on estime.
-            if nom_dist in dict_manuels_course:
-                val_sec = dict_manuels_course[nom_dist]
+            best_officiel = dict_manuels_course.get(nom_dist, float('inf'))
+            
+            # RECHERCHE D'UN PASSAGE VALIDÉ : Si on a couru cette distance ou plus long
+            if not df_run.empty:
+                runs_couvrant_distance = df_run[df_run['dist_totale'] >= dist_km]
+                if not runs_couvrant_distance.empty:
+                    # On calcule le temps de passage sur la distance cible (allure * distance cible)
+                    meilleur_passage = (runs_couvrant_distance['sec_km'] * dist_km).min()
+                    if meilleur_passage < best_officiel:
+                        best_officiel = meilleur_passage
+            
+            # ATTRIBUTION DES LABELS
+            if best_officiel != float('inf'):
+                val_sec = best_officiel
                 source = "Officiel 🏅"
             elif best_perf is not None:
+                # Si on n'a jamais couvert la distance, on estime
                 val_sec = estimate_riegel(best_perf['dist_totale'], best_perf['sec_tot'], dist_km)
                 source = "Estimé 🤖"
             else:
@@ -669,8 +684,6 @@ with tabs[5]:
                 
             temps_str = sec_to_time_str(val_sec) if val_sec > 0 else "N/A"
             cols_run[i].metric(nom_dist, temps_str, source, delta_color="off")
-
-    st.divider()
 
     # -------------------------------------------
     # SECTION 2 : RECORDS DE FORCE
