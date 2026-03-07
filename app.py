@@ -135,6 +135,12 @@ class FavorisCoach(Base):
     id = Column(Integer, primary_key=True)
     coach_id = Column(Integer)
     athlete_id = Column(Integer)
+class Commentaire(Base):
+    __tablename__ = 'commentaires'
+    __table_args__ = {'extend_existing': True}
+    id = Column(Integer, primary_key=True)
+    seance_id = Column(Integer)
+    texte = Column(Text)
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 db = Session()
