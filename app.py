@@ -603,40 +603,98 @@ with tabs[4]:
 # ==========================================
 with tabs[5]: 
     df_r = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid}", engine)
-    st.subheader("Modélisation Course")
-    if not df_r.empty:
+    
+    # -------------------------------------------
+    # SECTION 1 : RECORDS DE COURSE
+    # -------------------------------------------
+    st.subheader("🏃‍♂️ Records Course à Pied")
+    col_rc1, col_rc2 = st.columns([2, 1])
+    
+    with col_rc2:
+        with st.expander("⏱️ Ajouter un chrono officiel", expanded=False):
+            with st.form("add_manual_run_pr"):
+                r_dist = st.selectbox("Distance", ["1 km", "5 km", "10 km", "Semi-Marathon", "Marathon"])
+                r_time = st.text_input("Temps", placeholder="ex: 45:30 ou 1:45:30")
+                if st.form_submit_button("Valider"):
+                    try:
+                        parts = r_time.strip().split(':')
+                        if len(parts) == 2: 
+                            secs = int(parts[0]) * 60 + int(parts[1])
+                        elif len(parts) == 3: 
+                            secs = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                        else: 
+                            secs = 0
+                        
+                        if secs > 0:
+                            nom_record = f"Course: {r_dist}"
+                            db.query(RecordManuel).filter(RecordManuel.nom_exo == nom_record, RecordManuel.user_id == uid).delete()
+                            db.add(RecordManuel(user_id=uid, nom_exo=nom_record, valeur_1rm=float(secs)))
+                            db.commit()
+                            st.rerun()
+                        else: 
+                            st.error("Format de temps invalide.")
+                    except: 
+                        st.error("Format requis : MM:SS ou HH:MM:SS")
+
+    with col_rc1:
+        # Récupération des records officiels de course
+        manuels_course = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo LIKE 'Course: %'", engine)
+        dict_manuels_course = {row['nom_exo'].replace("Course: ", ""): row['valeur_1rm'] for _, row in manuels_course.iterrows()}
+        
+        # Récupération des estimations Riegel
         df_run = df_r[(df_r['type_seance'] == "Course") & (df_r['dist_totale'] >= 1.0)].copy()
+        best_perf = None
         if not df_run.empty:
             df_run['sec_tot'] = df_run['allure_moy'].apply(allure_to_sec) * df_run['dist_totale']
             df_run_valide = df_run[df_run['sec_tot'] > 0].copy()
             if not df_run_valide.empty:
                 df_run_valide['score_10k'] = df_run_valide.apply(lambda r: estimate_riegel(r['dist_totale'], r['sec_tot'], 10.0), axis=1)
                 best_perf = df_run_valide.loc[df_run_valide['score_10k'].idxmin()]
-                st.success(f"Référence détectée : {best_perf['dist_totale']} km à {best_perf['allure_moy']} min/km")
-                targets = [1, 5, 10, 21.1, 42.2]
-                cols_run = st.columns(5)
-                for i, t in enumerate(targets):
-                    t_sec = estimate_riegel(best_perf['dist_totale'], best_perf['sec_tot'], t)
-                    cols_run[i].metric(f"{t} km", f"{sec_to_time_str(t_sec)}", delta_color="off")
-        else: st.info("Volume aérobie insuffisant.")
+                st.caption(f"💡 Estimations IA basées sur ta meilleure perf relative : {best_perf['dist_totale']} km à {best_perf['allure_moy']} min/km")
+        
+        targets_map = {"1 km": 1, "5 km": 5, "10 km": 10, "Semi-Marathon": 21.1, "Marathon": 42.2}
+        cols_run = st.columns(5)
+        
+        for i, (nom_dist, dist_km) in enumerate(targets_map.items()):
+            # S'il y a un record officiel, on l'affiche en priorité. Sinon, on estime.
+            if nom_dist in dict_manuels_course:
+                val_sec = dict_manuels_course[nom_dist]
+                source = "Officiel 🏅"
+            elif best_perf is not None:
+                val_sec = estimate_riegel(best_perf['dist_totale'], best_perf['sec_tot'], dist_km)
+                source = "Estimé 🤖"
+            else:
+                val_sec = 0
+                source = "-"
+                
+            temps_str = sec_to_time_str(val_sec) if val_sec > 0 else "N/A"
+            cols_run[i].metric(nom_dist, temps_str, source, delta_color="off")
 
     st.divider()
-    col_rec1, col_rec2 = st.columns([2, 1])
-    with col_rec2:
-        st.subheader("Calibrage 1RM")
-        with st.form("add_manual_pr"):
-            m_exo = st.selectbox("Mouvement", [""] + get_options_exos())
-            m_val = st.number_input("Valeur (kg)", 0.0)
-            if st.form_submit_button("Sauvegarder"):
-                if m_exo and m_val > 0:
-                    db.query(RecordManuel).filter(RecordManuel.nom_exo == m_exo, RecordManuel.user_id == uid).delete()
-                    db.add(RecordManuel(user_id=uid, nom_exo=m_exo, valeur_1rm=m_val))
-                    db.commit(); st.rerun()
-                    
-    with col_rec1:
-        st.subheader("Performances Maximales (Force)")
-        manuels = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid}", engine)
-        dict_manuels = dict(zip(manuels.nom_exo, manuels.valeur_1rm)) if not manuels.empty else {}
+
+    # -------------------------------------------
+    # SECTION 2 : RECORDS DE FORCE
+    # -------------------------------------------
+    st.subheader("🏋️‍♂️ Performances Maximales (Force)")
+    col_rf1, col_rf2 = st.columns([2, 1])
+    
+    with col_rf2:
+        with st.expander("⚖️ Calibrage manuel 1RM", expanded=False):
+            with st.form("add_manual_pr"):
+                m_exo = st.selectbox("Mouvement", [""] + get_options_exos())
+                m_val = st.number_input("Valeur (kg)", 0.0)
+                if st.form_submit_button("Sauvegarder"):
+                    if m_exo and m_val > 0:
+                        db.query(RecordManuel).filter(RecordManuel.nom_exo == m_exo, RecordManuel.user_id == uid).delete()
+                        db.add(RecordManuel(user_id=uid, nom_exo=m_exo, valeur_1rm=m_val))
+                        db.commit()
+                        st.rerun()
+                        
+    with col_rf1:
+        # On exclut les chronos de course pour n'afficher que la muscu
+        manuels_force = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo NOT LIKE 'Course: %'", engine)
+        dict_manuels_force = dict(zip(manuels_force.nom_exo, manuels_force.valeur_1rm)) if not manuels_force.empty else {}
+        
         all_exos = []
         if not df_r.empty:
             for row in df_r['exercices'].dropna():
@@ -647,23 +705,32 @@ with tabs[5]:
                                 ex['nom'] = ex.get('nom', '').strip().title()
                                 all_exos.append(ex)
                     except: pass
-        if all_exos or dict_manuels:
+                    
+        if all_exos or dict_manuels_force:
             df_ex = pd.DataFrame(all_exos) if all_exos else pd.DataFrame(columns=['nom', '1RM', 'p', 'r'])
             if not df_ex.empty:
                 df_ex['1RM'] = df_ex.apply(lambda r: r['p'] * (36/(37-r['r'])) if r['r']<37 else r['p'], axis=1)
                 best_pr = df_ex.sort_values('1RM', ascending=False).drop_duplicates('nom')
-            else: best_pr = pd.DataFrame(columns=['nom', '1RM', 'p', 'r'])
+            else: 
+                best_pr = pd.DataFrame(columns=['nom', '1RM', 'p', 'r'])
             
             c_pr = st.columns(3)
             idx = 0
             exos_affiches = set()
-            for exo, val in dict_manuels.items():
-                c_pr[idx%3].metric(f"{exo}", f"{int(val)} kg", "Manuel", delta_color="off")
-                exos_affiches.add(exo); idx += 1
+            
+            # Affichage des 1RM manuels
+            for exo, val in dict_manuels_force.items():
+                c_pr[idx%3].metric(f"{exo}", f"{int(val)} kg", "Manuel 🏅", delta_color="off")
+                exos_affiches.add(exo)
+                idx += 1
+                
+            # Affichage des 1RM calculés
             for _, row in best_pr.iterrows():
                 if row['nom'] not in exos_affiches:
-                    c_pr[idx%3].metric(f"{row['nom']}", f"{int(row['1RM'])} kg", "Calculé", delta_color="off")
+                    c_pr[idx%3].metric(f"{row['nom']}", f"{int(row['1RM'])} kg", "Calculé 🤖", delta_color="off")
                     idx += 1
+        else:
+            st.info("Aucune donnée de musculation enregistrée.")
 
 
 # ==========================================
