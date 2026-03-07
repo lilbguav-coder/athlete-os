@@ -223,7 +223,17 @@ def calc_body_fat(p, t, c, v):
     except: return 0
 
 # --- INTERFACE ---
-tabs = st.tabs(["Planification", "Saisie", "Santé", "Journal", "Analyses", "Records", "Bilan IA"])
+# --- DÉFINITION DES ONGLETS DYNAMIQUES ---
+# Remplace "Lilian" par ton identifiant exact de connexion !
+PSEUDO_COACH = "Lilian" 
+is_coach = (st.session_state.username.lower() == PSEUDO_COACH.lower())
+
+liste_onglets = ["Planification", "Saisie", "Santé", "Journal", "Analyses", "Records", "Bilan IA"]
+if is_coach:
+    liste_onglets.append("👑 Espace Coach")
+
+tabs = st.tabs(liste_onglets)
+today = datetime.now().date()
 today = datetime.now().date()
 
 # ==========================================
