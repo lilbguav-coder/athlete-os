@@ -209,26 +209,56 @@ today = datetime.now().date()
 # ==========================================
 with tabs[0]: 
     col_p1, col_p2 = st.columns([2, 1])
+    
     with col_p1:
-        st.header("Plan du jour")
+        # --- 1. LE PLAN DU JOUR ---
+        st.header("🎯 Plan du jour")
         plan_today = db.query(Planification).filter(Planification.date == today, Planification.user_id == uid).all()
         if plan_today:
             for p in plan_today:
                 st.info(f"**{p.titre}**\n\n{p.description}")
-                if st.button(f"Marquer comme fait", key=f"done_{p.id}"):
+                if st.button(f"✅ Marquer comme fait", key=f"done_{p.id}"):
                     db.query(Planification).filter(Planification.id == p.id).delete()
                     db.commit(); st.rerun()
-        else: st.success("Aucune séance programmée aujourd'hui.")
+        else: 
+            st.success("Aucune séance programmée aujourd'hui. Repos ou improvisation !")
 
         st.divider()
-        st.subheader("Programmer une séance")
+        
+        # --- 2. PROGRAMMER UNE SÉANCE ---
+        st.subheader("➕ Programmer")
         with st.form("add_plan"):
-            p_date = st.date_input("Date", today)
-            p_titre = st.text_input("Titre")
-            p_desc = st.text_area("Description")
+            # J'ai mis 'today + 1 jour' par défaut, c'est plus logique pour planifier le futur
+            p_date = st.date_input("Date", today + timedelta(days=1))
+            p_titre = st.text_input("Titre de la séance")
+            p_desc = st.text_area("Description / Objectifs")
             if st.form_submit_button("Ajouter au calendrier"):
                 db.add(Planification(user_id=uid, date=p_date, titre=p_titre, description=p_desc, statut="Programmé"))
-                db.commit(); st.success("Ajouté !"); st.rerun()
+                db.commit(); st.success("Séance ajoutée !"); st.rerun()
+
+        st.divider()
+        
+        # --- 3. TIMELINE DU CALENDRIER À VENIR ---
+        st.subheader("📅 Prochaines Séances")
+        # On récupère toutes les séances futures triées par date
+        plan_futur = db.query(Planification).filter(Planification.date > today, Planification.user_id == uid).order_by(Planification.date.asc()).all()
+        
+        if plan_futur:
+            jours_fr = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+            for p in plan_futur:
+                # Formatage de la date (ex: "Mer 15/05")
+                nom_jour = jours_fr[p.date.weekday()]
+                date_str = f"{nom_jour} {p.date.strftime('%d/%m')}"
+                
+                # Utilisation d'un expander pour que ça reste compact sur téléphone
+                with st.expander(f"**{date_str}** : {p.titre}", expanded=False):
+                    st.write(p.description)
+                    # Option pour annuler/supprimer une séance prévue
+                    if st.button("🗑️ Annuler cette séance", key=f"del_plan_{p.id}"):
+                        db.query(Planification).filter(Planification.id == p.id).delete()
+                        db.commit(); st.rerun()
+        else:
+            st.info("Rien de prévu pour les prochains jours. C'est le moment de structurer ta semaine !")
 
 with col_p2:
         st.subheader("🤖 Assistant IA")
