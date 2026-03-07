@@ -666,11 +666,9 @@ with tabs[5]:
                         st.error("Format requis : MM:SS ou HH:MM:SS")
 
     with col_rc1:
-        # 1. Récupération des records manuels saisis
         manuels_course = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo LIKE 'Course: %%'", engine)
         dict_manuels_course = {row['nom_exo'].replace("Course: ", ""): row['valeur_1rm'] for _, row in manuels_course.iterrows()}
         
-        # 2. Préparation des données de course pour les passages
         df_run = df_r[(df_r['type_seance'] == "Course") & (df_r['dist_totale'] >= 1.0)].copy()
         best_perf = None
         if not df_run.empty:
@@ -678,7 +676,6 @@ with tabs[5]:
             df_run['sec_tot'] = df_run['sec_km'] * df_run['dist_totale']
             df_run_valide = df_run[df_run['sec_tot'] > 0].copy()
             
-            # Calcul de la meilleure perf relative pour l'estimation Riegel
             if not df_run_valide.empty:
                 df_run_valide['score_10k'] = df_run_valide.apply(lambda r: estimate_riegel(r['dist_totale'], r['sec_tot'], 10.0), axis=1)
                 best_perf = df_run_valide.loc[df_run_valide['score_10k'].idxmin()]
@@ -689,30 +686,38 @@ with tabs[5]:
         
         for i, (nom_dist, dist_km) in enumerate(targets_map.items()):
             best_officiel = dict_manuels_course.get(nom_dist, float('inf'))
+            date_record = None
             
-            # RECHERCHE D'UN PASSAGE VALIDÉ : Si on a couru cette distance ou plus long
             if not df_run.empty:
                 runs_couvrant_distance = df_run[df_run['dist_totale'] >= dist_km]
                 if not runs_couvrant_distance.empty:
-                    # On calcule le temps de passage sur la distance cible (allure * distance cible)
-                    meilleur_passage = (runs_couvrant_distance['sec_km'] * dist_km).min()
+                    # On cherche la course avec le meilleur passage
+                    meilleur_run = runs_couvrant_distance.loc[(runs_couvrant_distance['sec_km'] * dist_km).idxmin()]
+                    meilleur_passage = meilleur_run['sec_km'] * dist_km
                     if meilleur_passage < best_officiel:
                         best_officiel = meilleur_passage
+                        date_record = meilleur_run['date'] # On sauvegarde la date !
             
-            # ATTRIBUTION DES LABELS
             if best_officiel != float('inf'):
                 val_sec = best_officiel
                 source = "Officiel 🏅"
             elif best_perf is not None:
-                # Si on n'a jamais couvert la distance, on estime
                 val_sec = estimate_riegel(best_perf['dist_totale'], best_perf['sec_tot'], dist_km)
                 source = "Estimé 🤖"
+                date_record = best_perf['date'] # Date de la course qui sert de base
             else:
                 val_sec = 0
                 source = "-"
                 
             temps_str = sec_to_time_str(val_sec) if val_sec > 0 else "N/A"
-            cols_run[i].metric(nom_dist, temps_str, source, delta_color="off")
+            
+            with cols_run[i]:
+                st.metric(nom_dist, temps_str, source, delta_color="off")
+                if date_record is not None:
+                    # Bouton pour charger la date dans le journal
+                    if st.button(f"🔍 {date_record.strftime('%d/%m')}", key=f"btn_run_{nom_dist}"):
+                        st.session_state.sel_date = date_record
+                        st.success("Date chargée ! Ouvre l'onglet Journal.")
 
     # -------------------------------------------
     # SECTION 2 : RECORDS DE FORCE
@@ -733,56 +738,52 @@ with tabs[5]:
                         st.rerun()
                         
     with col_rf1:
-        # 1. Records manuels (Force)
         manuels_force = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo NOT LIKE 'Course: %%'", engine)
         dict_manuels_force = {row['nom_exo']: row['valeur_1rm'] for _, row in manuels_force.iterrows()}
         
-        # 2. Extraction de toutes les séries de musculation
         all_exos = []
         if not df_r.empty:
-            for row in df_r['exercices'].dropna():
-                if row not in ["None", "[]"]:
+            for _, row in df_r.iterrows():
+                ex_str = row['exercices']
+                if pd.notna(ex_str) and ex_str not in ["None", "[]"]:
                     try: 
-                        for ex in ast.literal_eval(row):
+                        for ex in ast.literal_eval(ex_str):
                             if ex.get('p', 0) > 0 and ex.get('r', 0) > 0:
                                 ex['nom'] = ex.get('nom', '').strip().title()
+                                ex['date'] = row['date'] # On conserve la date de la séance
                                 all_exos.append(ex)
                     except: pass
                     
-        # 3. Consolidation et calcul du meilleur 1RM par exercice
         best_pr_dict = {}
-        
-        # Intégration des records saisis manuellement
         for exo, val in dict_manuels_force.items():
-            best_pr_dict[exo] = {'1RM': val, 'source': 'Officiel 🏅'}
+            best_pr_dict[exo] = {'1RM': val, 'source': 'Officiel 🏅', 'date': None}
             
-        # Parcours des performances du journal
         for ex in all_exos:
             nom = ex['nom']
             p = float(ex['p'])
             r = int(ex['r'])
+            date_perf = ex['date']
             
-            # Formule d'Epley pour le 1RM
             calc_1rm = p * (36 / (37 - r)) if r < 37 else p
-            
-            # Si la série est un vrai "Max" (1 seule rep), la perf est Officielle
             source = "Officiel 🏅" if r == 1 else "Estimé 🤖"
             
-            # On met à jour si on n'a pas encore l'exo OU si le nouveau calcul est meilleur
             if nom not in best_pr_dict or calc_1rm > best_pr_dict[nom]['1RM']:
-                best_pr_dict[nom] = {'1RM': calc_1rm, 'source': source}
-            # Si le calcul estimé est égal à un record officiel existant, on priorise le badge Officiel
+                best_pr_dict[nom] = {'1RM': calc_1rm, 'source': source, 'date': date_perf}
             elif calc_1rm == best_pr_dict[nom]['1RM'] and source == "Officiel 🏅":
                 best_pr_dict[nom]['source'] = "Officiel 🏅"
+                best_pr_dict[nom]['date'] = date_perf
 
-        # 4. Affichage
         if best_pr_dict:
-            # Tri par charge maximale (décroissant) pour mettre tes plus gros lifts en premier
             sorted_prs = sorted(best_pr_dict.items(), key=lambda x: x[1]['1RM'], reverse=True)
             
             c_pr = st.columns(3)
             for idx, (exo, data) in enumerate(sorted_prs):
-                c_pr[idx%3].metric(f"{exo}", f"{int(data['1RM'])} kg", data['source'], delta_color="off")
+                with c_pr[idx%3]:
+                    st.metric(f"{exo}", f"{int(data['1RM'])} kg", data['source'], delta_color="off")
+                    if data['date']:
+                        if st.button(f"🔍 {data['date'].strftime('%d/%m/%Y')}", key=f"btn_force_{exo}"):
+                            st.session_state.sel_date = data['date']
+                            st.success("Date chargée ! Ouvre l'onglet Journal.")
         else:
             st.info("Aucune donnée de musculation enregistrée.")
 
