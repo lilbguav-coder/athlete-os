@@ -29,6 +29,18 @@ st.markdown("""
 # --- CONNEXION CLOUD ---
 db_url = st.secrets["DATABASE_URL"]
 engine = create_engine(db_url)
+# --- SCRIPT COMMANDO : FORCE L'AJOUT DES CLOISONS ---
+from sqlalchemy import text
+try:
+    with engine.begin() as conn:
+        for t in ['seances', 'sante', 'planification', 'records_manuels']:
+            try:
+                conn.execute(text(f"ALTER TABLE {t} ADD COLUMN user_id INTEGER DEFAULT 1"))
+            except:
+                pass
+except:
+    pass
+# ----------------------------------------------------
 Base = declarative_base()
 
 # --- TABLES AVEC USER_ID ---
