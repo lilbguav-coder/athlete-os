@@ -1009,7 +1009,7 @@ if is_coach:
                         db.commit()
                         st.rerun()
 
-            # 4. Affichage des données de l'athlète sélectionné
+# 4. Affichage des données de l'athlète sélectionné et ACTIONS DU COACH
             with c_data:
                 if st.session_state.selected_athlete_id:
                     ath_id = st.session_state.selected_athlete_id
@@ -1017,28 +1017,47 @@ if is_coach:
                     
                     st.subheader(f"📊 Dossier de {ath_name.upper()}")
                     
-                    # On va chercher ses séances des 30 derniers jours
+                    # --- ACTION 1 : PLANIFICATION À DISTANCE ---
+                    with st.expander(f"📅 Programmer une séance pour {ath_name}", expanded=False):
+                        with st.form(f"form_plan_{ath_id}"):
+                            pc_date = st.date_input("Date prévue", today + timedelta(days=1))
+                            pc_titre = st.text_input("Titre de la séance")
+                            pc_desc = st.text_area("Description / Objectifs")
+                            if st.form_submit_button("Envoyer au calendrier de l'athlète"):
+                                db.add(Planification(user_id=ath_id, date=pc_date, titre=pc_titre, description=pc_desc, statut="Programmé par Coach Lilian"))
+                                db.commit()
+                                st.success(f"Séance envoyée directement dans l'agenda de {ath_name} !")
+                                st.rerun()
+
+                    # --- ACTION 2 : FEEDBACK SUR LES DERNIÈRES SÉANCES ---
+                    st.markdown("**Dernières activités & Feedback :**")
                     trente_jours = today - timedelta(days=30)
-                    seances_ath = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {ath_id} AND date >= '{trente_jours}'", engine)
+                    seances_ath = db.query(Seance).filter(Seance.user_id == ath_id, Seance.date >= trente_jours, Seance.type_seance != "Mesures").order_by(Seance.date.desc()).limit(5).all()
                     
-                    if not seances_ath.empty:
-                        seances_ath['date'] = pd.to_datetime(seances_ath['date'])
-                        
-                        # Petits KPIs rapides pour le coach
-                        vol_total = seances_ath['duree'].sum() / 60
-                        dist_totale = seances_ath['dist_totale'].sum()
-                        
-                        c_k1, c_k2 = st.columns(2)
-                        c_k1.metric("Volume (30j)", f"{vol_total:.1f} h")
-                        c_k2.metric("Distance Course", f"{dist_totale:.1f} km")
-                        
-                        st.markdown("**Dernières activités :**")
-                        historique = seances_ath[seances_ath['type_seance'] != "Mesures"].sort_values('date', ascending=False).head(5)
-                        for _, row in historique.iterrows():
-                            date_str = row['date'].strftime('%d/%m')
-                            resume = f"{row['duree']} min | RPE {row['rpe']}"
-                            st.write(f"- **{date_str}** : {row['type_seance']} ({resume})")
+                    if seances_ath:
+                        for s in seances_ath:
+                            date_str = s.date.strftime('%d/%m')
+                            resume = f"{s.duree} min | RPE {s.rpe}"
+                            
+                            with st.expander(f"🏃 {date_str} : {s.type_seance} ({resume})"):
+                                if s.type_seance == "Course": st.write(f"**Distance:** {s.dist_totale} km | **Allure:** {s.allure_moy}")
+                                if s.exercices and s.exercices not in ["[]", "None"]: st.write(f"**Détails:** {s.exercices}")
+                                
+                                # Récupération d'un commentaire existant
+                                existing_comment = db.query(Commentaire).filter(Commentaire.seance_id == s.id).first()
+                                def_text = existing_comment.texte if existing_comment else ""
+                                
+                                # Formulaire de Debrief
+                                c_txt = st.text_area("📝 Ton debrief de Coach :", value=def_text, key=f"txt_{s.id}")
+                                if st.button("Enregistrer le debrief", key=f"btn_comment_{s.id}"):
+                                    if existing_comment:
+                                        existing_comment.texte = c_txt
+                                    else:
+                                        db.add(Commentaire(seance_id=s.id, texte=c_txt))
+                                    db.commit()
+                                    st.success("Debrief sauvegardé !")
+                                    st.rerun()
                     else:
-                        st.info("Cet athlète n'a enregistré aucune donnée ces 30 derniers jours.")
+                        st.info("Aucune activité récente pour cet athlète.")
                 else:
-                    st.caption("👈 Sélectionne un athlète dans la liste pour voir ses données d'entraînement.")
+                    st.caption("👈 Sélectionne un athlète dans la liste pour voir ses données et interagir.")
