@@ -704,10 +704,11 @@ with tabs[5]:
                         st.rerun()
                         
     with col_rf1:
-        # On exclut les chronos de course pour n'afficher que la muscu
+        # 1. Records manuels (Force)
         manuels_force = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo NOT LIKE 'Course: %%'", engine)
-        dict_manuels_force = dict(zip(manuels_force.nom_exo, manuels_force.valeur_1rm)) if not manuels_force.empty else {}
+        dict_manuels_force = {row['nom_exo']: row['valeur_1rm'] for _, row in manuels_force.iterrows()}
         
+        # 2. Extraction de toutes les séries de musculation
         all_exos = []
         if not df_r.empty:
             for row in df_r['exercices'].dropna():
@@ -719,29 +720,40 @@ with tabs[5]:
                                 all_exos.append(ex)
                     except: pass
                     
-        if all_exos or dict_manuels_force:
-            df_ex = pd.DataFrame(all_exos) if all_exos else pd.DataFrame(columns=['nom', '1RM', 'p', 'r'])
-            if not df_ex.empty:
-                df_ex['1RM'] = df_ex.apply(lambda r: r['p'] * (36/(37-r['r'])) if r['r']<37 else r['p'], axis=1)
-                best_pr = df_ex.sort_values('1RM', ascending=False).drop_duplicates('nom')
-            else: 
-                best_pr = pd.DataFrame(columns=['nom', '1RM', 'p', 'r'])
+        # 3. Consolidation et calcul du meilleur 1RM par exercice
+        best_pr_dict = {}
+        
+        # Intégration des records saisis manuellement
+        for exo, val in dict_manuels_force.items():
+            best_pr_dict[exo] = {'1RM': val, 'source': 'Officiel 🏅'}
+            
+        # Parcours des performances du journal
+        for ex in all_exos:
+            nom = ex['nom']
+            p = float(ex['p'])
+            r = int(ex['r'])
+            
+            # Formule d'Epley pour le 1RM
+            calc_1rm = p * (36 / (37 - r)) if r < 37 else p
+            
+            # Si la série est un vrai "Max" (1 seule rep), la perf est Officielle
+            source = "Officiel 🏅" if r == 1 else "Estimé 🤖"
+            
+            # On met à jour si on n'a pas encore l'exo OU si le nouveau calcul est meilleur
+            if nom not in best_pr_dict or calc_1rm > best_pr_dict[nom]['1RM']:
+                best_pr_dict[nom] = {'1RM': calc_1rm, 'source': source}
+            # Si le calcul estimé est égal à un record officiel existant, on priorise le badge Officiel
+            elif calc_1rm == best_pr_dict[nom]['1RM'] and source == "Officiel 🏅":
+                best_pr_dict[nom]['source'] = "Officiel 🏅"
+
+        # 4. Affichage
+        if best_pr_dict:
+            # Tri par charge maximale (décroissant) pour mettre tes plus gros lifts en premier
+            sorted_prs = sorted(best_pr_dict.items(), key=lambda x: x[1]['1RM'], reverse=True)
             
             c_pr = st.columns(3)
-            idx = 0
-            exos_affiches = set()
-            
-            # Affichage des 1RM manuels
-            for exo, val in dict_manuels_force.items():
-                c_pr[idx%3].metric(f"{exo}", f"{int(val)} kg", "Manuel 🏅", delta_color="off")
-                exos_affiches.add(exo)
-                idx += 1
-                
-            # Affichage des 1RM calculés
-            for _, row in best_pr.iterrows():
-                if row['nom'] not in exos_affiches:
-                    c_pr[idx%3].metric(f"{row['nom']}", f"{int(row['1RM'])} kg", "Calculé 🤖", delta_color="off")
-                    idx += 1
+            for idx, (exo, data) in enumerate(sorted_prs):
+                c_pr[idx%3].metric(f"{exo}", f"{int(data['1RM'])} kg", data['source'], delta_color="off")
         else:
             st.info("Aucune donnée de musculation enregistrée.")
 
