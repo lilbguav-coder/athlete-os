@@ -576,6 +576,14 @@ with tabs[3]:
                 st.markdown("---")
     else:
         st.info("Aucune donnée enregistrée pour ce jour.")
+
+    # --- NOUVEAU : AFFICHAGE DU DEBRIEF COACH ---
+                commentaire_coach = db.query(Commentaire).filter(Commentaire.seance_id == row.id).first()
+                if commentaire_coach and commentaire_coach.texte:
+                    st.info(f"👑 **Debrief de Coach Lilian :**\n\n{commentaire_coach.texte}")
+                    
+                st.markdown("---")
+La magie de ce que tu viens de créer :
         
     # --- 3. FIL D'ACTUALITÉ (Historique récent) ---
     st.subheader("🔄 Dernières Activités")
