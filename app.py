@@ -223,14 +223,15 @@ with tabs[0]:
         st.markdown("Générer une séance optimale basée sur ta récupération actuelle.")
         if st.button("Consulter l'IA", type="primary"):
             if "GEMINI_API_KEY" not in st.secrets:
-                st.error("L'IA n'est pas activée. Ajoute ta GEMINI_API_KEY dans les secrets Streamlit.")
+                st.error("L'IA n'est pas activée. Ajoute ta GEMINI_API_KEY.")
             else:
                 with st.spinner("Analyse de tes données en cours..."):
                     try:
                         recent = db.query(Seance).filter(Seance.user_id == uid).order_by(Seance.date.desc()).first()
                         vfc_txt = f"VFC: {recent.vfc}ms, Sommeil: {recent.sommeil_heures}h." if recent else "Pas de données récentes."
                         
-                        model = genai.GenerativeModel('gemini-1.5-pro')
+                        # --- CHANGEMENT ICI : Modèle universel de texte ---
+                        model = genai.GenerativeModel('gemini-pro')
                         prompt = f"Tu es un coach sportif d'élite. L'athlète te demande une séance aujourd'hui. Voici ses dernières constantes : {vfc_txt}. Propose-lui une seule séance courte et efficace (course ou force) adaptée à son état, en 3 lignes maximum. Sois direct et motivant."
                         response = model.generate_content(prompt)
                         st.success(response.text)
@@ -282,12 +283,13 @@ with tabs[1]:
                     if uploaded_file is not None:
                         if st.button("Analyser l'image avec l'IA"):
                             if "GEMINI_API_KEY" not in st.secrets:
-                                st.error("Ajoute ta clé GEMINI_API_KEY dans les secrets Streamlit pour utiliser cette fonction.")
+                                st.error("Ajoute ta clé GEMINI_API_KEY.")
                             else:
                                 with st.spinner("Lecture des données en cours..."):
                                     try:
                                         img = Image.open(uploaded_file)
-                                        model = genai.GenerativeModel('gemini-1.5-pro')
+                                        # --- CHANGEMENT ICI : Modèle universel d'image ---
+                                        model = genai.GenerativeModel('gemini-pro-vision')
                                         prompt = "Analyse cette image d'une application de course (Garmin/Strava). Renvoie uniquement un format JSON strict avec ces clés exactes : 'distance' (float, en km), 'duree' (int, en minutes totales), 'allure' (string, format MM:SS), 'fc_moyenne' (int, battements par minute). Ne mets aucun autre texte."
                                         response = model.generate_content([prompt, img])
                                         txt = response.text.replace("```json", "").replace("```", "").strip()
