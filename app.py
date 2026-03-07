@@ -22,11 +22,6 @@ st.markdown("""
     .stMetric { background-color: #1A1A1D; padding: 15px; border-radius: 8px; border-left: 4px solid #4A90E2; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     h1, h2, h3 { color: #E0E0E0; font-weight: 500; }
     hr { border-color: #333; }
-    /* Optimisation Mobile */
-    @media (max-width: 768px) {
-        .stMetric { padding: 10px; }
-        div[data-testid="stColumns"] { flex-direction: column; }
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -187,6 +182,10 @@ def sec_to_time_str(seconds):
 def estimate_riegel(dist_ref, sec_ref, dist_cible):
     return sec_ref * (dist_cible / dist_ref)**1.06 if dist_ref > 0 else 0
 
+def calc_body_fat(poids, taille, cou, ventre):
+    try: return 495 / (1.0324 - 0.19077 * (math.log10(ventre - cou)) + 0.15456 * (math.log10(taille))) - 450
+    except: return 0
+
 # --- INTERFACE ---
 tabs = st.tabs(["Planification", "Saisie", "Santé", "Journal", "Analyses", "Records"])
 today = datetime.now().date()
@@ -245,48 +244,52 @@ with tabs[1]:
             db.commit(); st.success("Enregistré ✅")
 
     with tab_seance:
-        mode = st.radio("Modalité", ["Force", "Hyrox", "Course", "Cross-Training"], horizontal=True)
+        mode = st.radio("Modalité", ["Force", "Hyrox", "Course", "Cross-Training", "Repos"], horizontal=True)
         d_date_ent = st.date_input("Date de séance", today, key="date_ent")
         current_exos, dist_tot, allure_m, shoe, fc_moy, img_path = [], 0.0, "00:00", None, 0, None
         
-        c_r1, c_r2 = st.columns(2)
-        rpe = c_r1.slider("RPE (Effort 1-10)", 1, 10, 5)
-        dur = c_r2.number_input("Durée (min)", 0, 480, 60)
-        
-        if mode == "Course":
-            c_c1, c_c2 = st.columns(2)
-            dist_tot = c_c1.number_input("Distance (km)", 0.0)
-            allure_m = c_c2.text_input("Allure (min:sec)", "05:00")
-            fc_moy = c_c1.number_input("FC Moyenne", 0, 220, 0)
+        if mode != "Repos":
+            c_r1, c_r2 = st.columns(2)
+            rpe = c_r1.slider("RPE (Effort 1-10)", 1, 10, 5)
+            dur = c_r2.number_input("Durée (min)", 0, 480, 60)
             
-        elif mode == "Cross-Training":
-            st.markdown("### Détails du WOD")
-            c_ct1, c_ct2 = st.columns(2)
-            wod_format = c_ct1.selectbox("Format", ["AMRAP", "EMOM", "FOR TIME", "TABATA", "CHIPPER", "AUTRE"])
-            wod_score = c_ct2.text_input("Score (Temps, Tours, Reps...)", placeholder="ex: 4 tours + 10 reps")
-            st.session_state.blks = [{'format': wod_format, 'score': wod_score}] # On sauvegarde ça dans intervalles
-            
-            st.markdown("Mouvements inclus (optionnel)")
-            nb = st.number_input("Nombre d'exos", 0, 20, 1)
-            for i in range(nb):
-                cols = st.columns([3, 2, 1, 1, 1])
-                nom = cols[0].selectbox(f"Mouvement {i+1}", [""] + get_options_exos() + ["+ Saisir nouveau"], key=f"ct_nom_{i}")
-                if nom == "+ Saisir nouveau": nom = cols[0].text_input(f"Nouveau", key=f"ct_new_{i}")
-                grp = cols[1].selectbox("Muscle", ["Full Body", "Jambes", "Dos", "Pecs", "Epaules", "Bras"], key=f"ct_grp_{i}")
-                p = cols[4].number_input("Charge", 0.0, key=f"ct_p_{i}")
-                if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": 1, "r": 0, "p": p})
+            if mode == "Course":
+                c_c1, c_c2 = st.columns(2)
+                dist_tot = c_c1.number_input("Distance (km)", 0.0)
+                allure_m = c_c2.text_input("Allure (min:sec)", "05:00")
+                fc_moy = c_c1.number_input("FC Moyenne", 0, 220, 0)
+                
+            elif mode == "Cross-Training":
+                st.markdown("### Détails du WOD")
+                c_ct1, c_ct2 = st.columns(2)
+                wod_format = c_ct1.selectbox("Format", ["AMRAP", "EMOM", "FOR TIME", "TABATA", "CHIPPER", "AUTRE"])
+                wod_score = c_ct2.text_input("Score (Temps, Tours, Reps...)", placeholder="ex: 4 tours + 10 reps")
+                st.session_state.blks = [{'format': wod_format, 'score': wod_score}]
+                
+                st.markdown("Mouvements inclus (optionnel)")
+                nb = st.number_input("Nombre d'exos", 0, 20, 1)
+                for i in range(nb):
+                    cols = st.columns([3, 2, 1, 1, 1])
+                    nom = cols[0].selectbox(f"Mouvement {i+1}", [""] + get_options_exos() + ["+ Saisir nouveau"], key=f"ct_nom_{i}")
+                    if nom == "+ Saisir nouveau": nom = cols[0].text_input(f"Nouveau", key=f"ct_new_{i}")
+                    grp = cols[1].selectbox("Muscle", ["Full Body", "Jambes", "Dos", "Pecs", "Epaules", "Bras"], key=f"ct_grp_{i}")
+                    p = cols[4].number_input("Charge", 0.0, key=f"ct_p_{i}")
+                    if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": 1, "r": 0, "p": p})
 
-        elif mode in ["Force", "Hyrox"]:
-            nb = st.number_input("Nombre d'exercices", 1, 20, 1)
-            for i in range(nb):
-                cols = st.columns([3, 2, 1, 1, 1])
-                nom = cols[0].selectbox(f"Mouvement {i+1}", [""] + get_options_exos() + ["+ Saisir nouveau"], key=f"force_nom_{i}")
-                if nom == "+ Saisir nouveau": nom = cols[0].text_input(f"Nouveau", key=f"force_new_{i}")
-                grp = cols[1].selectbox("Muscle", ["Jambes", "Dos", "Pecs", "Epaules", "Bras", "Full Body"], key=f"force_grp_{i}")
-                s = cols[2].number_input("Séries", 0, key=f"force_s_{i}")
-                r = cols[3].number_input("Reps", 0, key=f"force_r_{i}")
-                p = cols[4].number_input("Charge", 0.0, key=f"force_p_{i}")
-                if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": s, "r": r, "p": p})
+            elif mode in ["Force", "Hyrox"]:
+                nb = st.number_input("Nombre d'exercices", 1, 20, 1)
+                for i in range(nb):
+                    cols = st.columns([3, 2, 1, 1, 1])
+                    nom = cols[0].selectbox(f"Mouvement {i+1}", [""] + get_options_exos() + ["+ Saisir nouveau"], key=f"force_nom_{i}")
+                    if nom == "+ Saisir nouveau": nom = cols[0].text_input(f"Nouveau", key=f"force_new_{i}")
+                    grp = cols[1].selectbox("Muscle", ["Jambes", "Dos", "Pecs", "Epaules", "Bras", "Full Body"], key=f"force_grp_{i}")
+                    s = cols[2].number_input("Séries", 0, key=f"force_s_{i}")
+                    r = cols[3].number_input("Reps", 0, key=f"force_r_{i}")
+                    p = cols[4].number_input("Charge", 0.0, key=f"force_p_{i}")
+                    if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": s, "r": r, "p": p})
+        else:
+            rpe, dur = 0, 0
+            st.info("Jour de repos complet sélectionné.")
 
         if st.button("Enregistrer ma séance", type="primary"):
             base = db.query(Seance).filter(Seance.date == d_date_ent, Seance.user_id == uid).first()
@@ -303,6 +306,30 @@ with tabs[1]:
             db.commit()
             st.session_state.blks = []
             st.success("Séance sauvegardée ! ✅"); st.rerun()
+
+# ==========================================
+# ONGLET 2 : SANTÉ
+# ==========================================
+with tabs[2]: 
+    st.subheader("Suivi de composition corporelle et lésions")
+    with st.form("sante_pro"):
+        c1, c2 = st.columns(2)
+        h_date = c1.date_input("Date de la mesure", today)
+        h_poids = c2.number_input("Masse corporelle (kg)", 0.0)
+        h_taille = c1.number_input("Stature (cm)", 175.0)
+        h_ventre = c2.number_input("Circonférence abdominale (cm)", 80.0)
+        h_cou = c1.number_input("Circonférence nuque (cm)", 38.0)
+        st.markdown("---")
+        c3, c4 = st.columns(2)
+        h_cal = c3.number_input("Apport calorique (kcal)", 0)
+        h_prot = c4.number_input("Apport protéique (g)", 0)
+        st.markdown("---")
+        h_bless = st.selectbox("Localisation de lésion", ["Aucune", "Genou", "Bas du dos", "Epaule", "Cheville", "Ischios"])
+        h_grav = st.slider("Index de douleur (0-10)", 0, 10, 0)
+        if st.form_submit_button("Valider la mesure"):
+            mg = calc_body_fat(h_poids, h_taille, h_cou, h_ventre)
+            db.add(Sante(user_id=uid, date=h_date, poids=h_poids if h_poids > 0 else None, taille=h_taille, cou=h_cou, ventre=h_ventre, mg_estimee=mg if mg > 0 else None, calories=h_cal if h_cal > 0 else None, proteines=h_prot, blessure_nom=h_bless, blessure_gravite=h_grav))
+            db.commit(); st.success("Mesures ajoutées au registre.")
 
 # ==========================================
 # ONGLET 3 : JOURNAL
@@ -325,8 +352,8 @@ with tabs[3]:
     df_all = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid}", engine)
     if not df_all.empty:
         df_all['date'] = pd.to_datetime(df_all['date'])
-        df_mois = df_all[(df_all['date'].dt.month == st.session_state.cal_month) & (df_all['date'].dt.year == st.session_state.cal_year)]
-        df_mois.loc[:, 'date_str'] = df_mois['date'].dt.strftime('%Y-%m-%d')
+        df_mois = df_all[(df_all['date'].dt.month == st.session_state.cal_month) & (df_all['date'].dt.year == st.session_state.cal_year)].copy()
+        df_mois['date_str'] = df_mois['date'].dt.strftime('%Y-%m-%d')
     else: df_mois = pd.DataFrame(columns=['date_str'])
     
     cal = calendar.Calendar(firstweekday=0)
@@ -377,7 +404,7 @@ with tabs[3]:
     else: st.info("Aucune séance ce jour.")
 
 # ==========================================
-# ONGLET 4 : ANALYSES (AVEC ZONES)
+# ONGLET 4 : ANALYSES (OPTIMISÉ MOBILE)
 # ==========================================
 with tabs[4]: 
     df_c = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid}", engine)
@@ -390,34 +417,85 @@ with tabs[4]:
             fig_sleep = make_subplots(specs=[[{"secondary_y": True}]])
             fig_sleep.add_trace(go.Bar(x=df_sleep['date'], y=df_sleep['sommeil_heures'], name="Heures", marker_color="#3A506B"), secondary_y=False)
             fig_sleep.add_trace(go.Scatter(x=df_sleep['date'], y=df_sleep['sommeil_qualite'], name="Qualité", mode='lines+markers', line=dict(color="#5BC0BE")), secondary_y=True)
-            # Ajout de la zone verte de sommeil optimal (7 à 9 heures)
-            fig_sleep.add_hrect(y0=7, y1=9, fillcolor="green", opacity=0.15, layer="below", line_width=0, secondary_y=False, annotation_text="Zone optimale", annotation_position="top left")
-            fig_sleep.update_layout(template="plotly_dark", margin=dict(t=30, b=0))
+            fig_sleep.add_hrect(y0=7, y1=9, fillcolor="green", opacity=0.15, layer="below", line_width=0, secondary_y=False)
+            fig_sleep.update_layout(template="plotly_dark", margin=dict(t=30, b=0), legend=dict(orientation="h", y=-0.3, x=0))
             st.plotly_chart(fig_sleep, use_container_width=True)
 
-        st.subheader("Ratio de Charge ACWR (Risque de blessure)")
-        df_efforts = df_c[df_c['type_seance'] != "Mesures"].copy()
-        df_efforts['charge'] = df_efforts['rpe'] * df_efforts['duree']
-        daily = df_efforts.groupby('date')['charge'].sum().reset_index()
-        daily['aigu'] = daily['charge'].rolling(7, min_periods=1).mean()
-        daily['chronique'] = daily['charge'].rolling(28, min_periods=1).mean()
-        daily['acwr'] = daily['aigu'] / daily['chronique']
+        st.divider()
+        col_d1, col_d2 = st.columns(2)
         
-        fig_acwr = go.Figure()
-        fig_acwr.add_trace(go.Scatter(x=daily['date'], y=daily['acwr'], name="Ratio ACWR", line=dict(color='#E53935'), mode='lines+markers'))
-        # Ajout de la zone verte (Sweet Spot ACWR entre 0.8 et 1.3)
-        fig_acwr.add_hrect(y0=0.8, y1=1.3, fillcolor="green", opacity=0.15, layer="below", line_width=0, annotation_text="Sweet Spot (0.8 - 1.3)", annotation_position="top left")
-        fig_acwr.update_layout(template="plotly_dark", margin=dict(t=30, b=0))
-        st.plotly_chart(fig_acwr, use_container_width=True)
+        with col_d1:
+            st.subheader("Ratio de Charge ACWR")
+            df_efforts = df_c[df_c['type_seance'] != "Mesures"].copy()
+            df_efforts['charge'] = df_efforts['rpe'] * df_efforts['duree']
+            daily = df_efforts.groupby('date')['charge'].sum().reset_index()
+            daily['aigu'] = daily['charge'].rolling(7, min_periods=1).mean()
+            daily['chronique'] = daily['charge'].rolling(28, min_periods=1).mean()
+            daily['acwr'] = daily['aigu'] / daily['chronique']
+            fig_acwr = go.Figure()
+            fig_acwr.add_trace(go.Scatter(x=daily['date'], y=daily['acwr'], name="ACWR", line=dict(color='#E53935'), mode='lines+markers'))
+            fig_acwr.add_hrect(y0=0.8, y1=1.3, fillcolor="green", opacity=0.15, layer="below", line_width=0)
+            fig_acwr.update_layout(template="plotly_dark", margin=dict(t=30, b=0), legend=dict(orientation="h", y=-0.3, x=0))
+            st.plotly_chart(fig_acwr, use_container_width=True)
+            
+            st.subheader("Distribution (80/20)")
+            low_int = df_efforts[df_efforts['rpe'] <= 4]['duree'].sum()
+            high_int = df_efforts[df_efforts['rpe'] > 4]['duree'].sum()
+            if low_int > 0 or high_int > 0:
+                fig_pie = px.pie(values=[low_int, high_int], names=['Z1-Z2', 'Z3+'], color_discrete_sequence=['#4A90E2', '#E53935'])
+                fig_pie.update_layout(template="plotly_dark", margin=dict(t=30, b=0), legend=dict(orientation="h", y=-0.3, x=0))
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+        with col_d2:
+            st.subheader("Efficacité Aérobie")
+            df_run = df_c[(df_c['type_seance'] == "Course") & (df_c['fc_moy'] > 0)].copy()
+            if not df_run.empty:
+                df_run['allure_sec'] = df_run['allure_moy'].apply(allure_to_sec)
+                df_run['vitesse_kmh'] = df_run['allure_sec'].apply(lambda x: 3600/x if x > 0 else 0)
+                df_run['efficiency'] = df_run.apply(lambda r: r['vitesse_kmh'] / r['fc_moy'] if r['fc_moy'] > 0 else 0, axis=1)
+                fig_eff = px.line(df_run[df_run['efficiency'] > 0], x='date', y='efficiency', markers=True)
+                fig_eff.update_layout(template="plotly_dark", margin=dict(t=30, b=0), legend=dict(orientation="h", y=-0.3, x=0))
+                st.plotly_chart(fig_eff, use_container_width=True)
+                
+            st.subheader("Distribution du Tonnage")
+            t_list = []
+            for ex_str in df_c['exercices'].dropna():
+                if ex_str != "[]" and ex_str != "None":
+                    try:
+                        for ex in ast.literal_eval(ex_str): t_list.append({"groupe": ex.get('groupe', 'Autre'), "volume": ex.get('s',0)*ex.get('r',0)*ex.get('p',0)})
+                    except: pass
+            if t_list:
+                df_t = pd.DataFrame(t_list).groupby('groupe').sum().reset_index()
+                fig_t = px.bar(df_t, x='groupe', y='volume', color='groupe', template="plotly_dark")
+                fig_t.update_layout(legend=dict(orientation="h", y=-0.3, x=0))
+                st.plotly_chart(fig_t, use_container_width=True)
 
 # ==========================================
 # ONGLET 5 : RECORDS
 # ==========================================
 with tabs[5]: 
     df_r = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid}", engine)
-    st.subheader("Records Estimés")
+    st.subheader("Modélisation Course")
+    if not df_r.empty:
+        df_run = df_r[(df_r['type_seance'] == "Course") & (df_r['dist_totale'] >= 1.0)].copy()
+        if not df_run.empty:
+            df_run['sec_tot'] = df_run['allure_moy'].apply(allure_to_sec) * df_run['dist_totale']
+            df_run_valide = df_run[df_run['sec_tot'] > 0].copy()
+            if not df_run_valide.empty:
+                df_run_valide['score_10k'] = df_run_valide.apply(lambda r: estimate_riegel(r['dist_totale'], r['sec_tot'], 10.0), axis=1)
+                best_perf = df_run_valide.loc[df_run_valide['score_10k'].idxmin()]
+                st.success(f"Référence détectée : {best_perf['dist_totale']} km à {best_perf['allure_moy']} min/km")
+                targets = [1, 5, 10, 21.1, 42.2]
+                cols_run = st.columns(5)
+                for i, t in enumerate(targets):
+                    t_sec = estimate_riegel(best_perf['dist_totale'], best_perf['sec_tot'], t)
+                    cols_run[i].metric(f"{t} km", f"{sec_to_time_str(t_sec)}", delta_color="off")
+        else: st.info("Volume aérobie insuffisant.")
+
+    st.divider()
     col_rec1, col_rec2 = st.columns([2, 1])
     with col_rec2:
+        st.subheader("Calibrage 1RM")
         with st.form("add_manual_pr"):
             m_exo = st.selectbox("Mouvement", [""] + get_options_exos())
             m_val = st.number_input("Valeur (kg)", 0.0)
@@ -428,6 +506,7 @@ with tabs[5]:
                     db.commit(); st.rerun()
                     
     with col_rec1:
+        st.subheader("Performances Maximales (Force)")
         manuels = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid}", engine)
         dict_manuels = dict(zip(manuels.nom_exo, manuels.valeur_1rm)) if not manuels.empty else {}
         all_exos = []
@@ -447,13 +526,13 @@ with tabs[5]:
                 best_pr = df_ex.sort_values('1RM', ascending=False).drop_duplicates('nom')
             else: best_pr = pd.DataFrame(columns=['nom', '1RM', 'p', 'r'])
             
-            c_pr = st.columns(2)
+            c_pr = st.columns(3)
             idx = 0
             exos_affiches = set()
             for exo, val in dict_manuels.items():
-                c_pr[idx%2].metric(f"{exo}", f"{int(val)} kg", "Manuel", delta_color="off")
+                c_pr[idx%3].metric(f"{exo}", f"{int(val)} kg", "Manuel", delta_color="off")
                 exos_affiches.add(exo); idx += 1
             for _, row in best_pr.iterrows():
                 if row['nom'] not in exos_affiches:
-                    c_pr[idx%2].metric(f"{row['nom']}", f"{int(row['1RM'])} kg", "Calculé", delta_color="off")
+                    c_pr[idx%3].metric(f"{row['nom']}", f"{int(row['1RM'])} kg", "Calculé", delta_color="off")
                     idx += 1
