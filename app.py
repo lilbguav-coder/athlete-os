@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, Text, text
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime, timedelta
 import calendar
@@ -21,12 +21,11 @@ st.markdown("""
     .stMetric { background-color: #1A1A1D; padding: 20px; border-radius: 8px; border-left: 4px solid #4A90E2; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     h1, h2, h3 { color: #E0E0E0; font-weight: 500; }
     hr { border-color: #333; }
-    /* Optimisation mobile : on s'assure que les text-areas prennent tout l'espace */
     .stTextArea textarea { width: 100% !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# Connexion sécurisée au Cloud
+# --- CONNEXION CLOUD POSTGRESQL ---
 db_url = st.secrets["DATABASE_URL"]
 engine = create_engine(db_url)
 Base = declarative_base()
@@ -84,11 +83,6 @@ class RecordManuel(Base):
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 db = Session()
-
-try:
-    db.execute(text("ALTER TABLE seances ADD COLUMN sommeil_qualite INTEGER"))
-    db.commit()
-except: pass
 
 # --- UTILS ---
 def get_options_exos():
@@ -182,17 +176,15 @@ with tabs[0]:
                 db.commit(); st.success("Séance programmée."); st.rerun()
 
 # ==========================================
-# ONGLET 1 : SAISIE (DÉCOUPLÉE MATIN / SÉANCE)
+# ONGLET 1 : SAISIE
 # ==========================================
 with tabs[1]: 
     tab_matin, tab_seance = st.tabs(["🌅 Matin : Constantes & Sommeil", "🏋️ Séance : Entraînement"])
     
-    # -- SOUS-ONGLET MATIN --
     with tab_matin:
         st.subheader("Récupération de la nuit")
         d_date_matin = st.date_input("Date", today, key="date_matin")
         
-        # On pré-remplit si on a déjà saisi des trucs aujourd'hui
         exist_m = db.query(Seance).filter(Seance.date == d_date_matin).first()
         def_slp = float(exist_m.sommeil_heures) if exist_m and exist_m.sommeil_heures else 7.5
         def_slp_q = int(exist_m.sommeil_qualite) if exist_m and exist_m.sommeil_qualite else 7
@@ -215,19 +207,16 @@ with tabs[1]:
         if st.button("Sauvegarder mes constantes", type="primary"):
             records = db.query(Seance).filter(Seance.date == d_date_matin).all()
             if records:
-                # Met à jour TOUTES les séances de la journée avec ce sommeil
                 db.query(Seance).filter(Seance.date == d_date_matin).update({
                     "sommeil_heures": slp, "sommeil_qualite": slp_q, "vfc": vfc, "fc_nocturne": fcn, "pre_check": str({"stress": stress, "motiv": motiv})
                 })
             else:
-                # S'il n'y a pas encore de séance, on crée une entrée "Mesures" (invisible dans les dashboards d'effort)
                 db.add(Seance(date=d_date_matin, type_seance="Mesures", rpe=0, duree=0,
                               sommeil_heures=slp, sommeil_qualite=slp_q, vfc=vfc, fc_nocturne=fcn,
                               pre_check=str({"stress": stress, "motiv": motiv})))
             db.commit()
             st.success("Constantes enregistrées pour la journée ! ✅")
 
-    # -- SOUS-ONGLET SÉANCE --
     with tab_seance:
         mode = st.radio("Modalité", ["Force", "Hyrox", "Course"], horizontal=True)
         d_date_ent = st.date_input("Date d'exécution", today, key="date_ent")
@@ -242,10 +231,6 @@ with tabs[1]:
             allure_m = colc2.text_input("Allure globale (min:sec)", "05:00")
             fc_moy = colc1.number_input("FC Moyenne d'effort", 0, 220, 0)
             shoe = colc2.text_input("Modèle de chaussures", "Standard")
-            uploaded_fc = st.file_uploader("Importer le tracé FC (Garmin/Coros)", type=['png', 'jpg'])
-            if uploaded_fc:
-                img_path = f"uploads/{d_date_ent}_{mode}.png"
-                with open(img_path, "wb") as f: f.write(uploaded_fc.getbuffer())
             
             st.markdown("**Construction des blocs d'allure**")
             if 'blks' not in st.session_state: st.session_state.blks = []
@@ -272,7 +257,6 @@ with tabs[1]:
                 if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": s, "r": r, "p": p})
 
         if st.button("Enregistrer ma séance", type="primary"):
-            # Hérite automatiquement du sommeil rentré le matin
             base = db.query(Seance).filter(Seance.date == d_date_ent).first()
             i_slp = base.sommeil_heures if base else 0.0
             i_slpq = base.sommeil_qualite if base else 0
@@ -284,11 +268,9 @@ with tabs[1]:
                           exercices=str(current_exos), intervalles=str(st.session_state.get('blks', [])), dist_totale=dist_tot, allure_moy=allure_m, fc_moy=fc_moy,
                           sommeil_heures=i_slp, sommeil_qualite=i_slpq, vfc=i_vfc, fc_nocturne=i_fcn, chaussures=shoe, 
                           pre_check=i_pre, image_fc=img_path))
-            
-            # Si on avait une ligne "Mesures" seule, on peut la nettoyer pour pas fausser la base, ou on la laisse (ignorée par les graphs de charge)
             db.commit()
             st.session_state.blks = []
-            st.success("Séance liée à tes constantes et sauvegardée ! ✅"); st.rerun()
+            st.success("Séance sauvegardée ! ✅"); st.rerun()
 
 # ==========================================
 # ONGLET 2 : SANTÉ
@@ -337,7 +319,13 @@ with tabs[3]:
             
     col_nav2.markdown(f"<h3 style='text-align: center;'>{calendar.month_name[st.session_state.cal_month]} {st.session_state.cal_year}</h3>", unsafe_allow_html=True)
 
-    df_mois = pd.read_sql(f"SELECT * FROM seances WHERE strftime('%m', date) = '{st.session_state.cal_month:02d}' AND strftime('%Y', date) = '{st.session_state.cal_year}'", engine)
+    df_all = pd.read_sql("SELECT * FROM seances", engine)
+    if not df_all.empty:
+        df_all['date'] = pd.to_datetime(df_all['date'])
+        df_mois = df_all[(df_all['date'].dt.month == st.session_state.cal_month) & (df_all['date'].dt.year == st.session_state.cal_year)].copy()
+        df_mois['date_str'] = df_mois['date'].dt.strftime('%Y-%m-%d')
+    else:
+        df_mois = pd.DataFrame(columns=['date_str'])
     
     cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdatescalendar(st.session_state.cal_year, st.session_state.cal_month)
@@ -350,7 +338,7 @@ with tabs[3]:
         cols_grille = st.columns(7)
         for i, d in enumerate(week):
             if d.month == st.session_state.cal_month:
-                seances_jour = df_mois[df_mois['date'] == d.strftime('%Y-%m-%d')]
+                seances_jour = df_mois[df_mois['date_str'] == d.strftime('%Y-%m-%d')]
                 indicator, tooltip = "", "Aucune donnée"
                 if not seances_jour.empty:
                     for _, s in seances_jour.iterrows():
@@ -366,19 +354,18 @@ with tabs[3]:
     s_detail = db.query(Seance).filter(Seance.date == st.session_state.sel_date).all()
     if s_detail:
         for row in s_detail:
-            if row.type_seance == "Mesures": continue # On masque la ligne technique pure
+            if row.type_seance == "Mesures": continue 
             col_info, col_edit = st.columns([4, 1])
             with col_info:
                 st.markdown(f"#### Module : {row.type_seance}")
-                st.write(f"**RPE:** {row.rpe}/10 | **Volume:** {row.duree} min | **Sommeil:** {row.sommeil_heures}h (Q:{row.sommeil_qualite}/10) | **VFC:** {row.vfc} ms")
+                st.write(f"**RPE:** {row.rpe}/10 | **Volume:** {row.duree} min | **Sommeil:** {row.sommeil_heures}h | **VFC:** {row.vfc} ms")
                 if row.type_seance == "Course":
-                    st.write(f"**Distance nette : {row.dist_totale} km** à {row.allure_moy} min/km (FC Moy: {row.fc_moy} bpm)")
+                    st.write(f"**Distance nette : {row.dist_totale} km** à {row.allure_moy} min/km")
                 if row.exercices and row.exercices not in ["[]", "None"]:
                     try:
                         for ex in ast.literal_eval(row.exercices):
                             st.write(f"- {ex.get('nom','').strip().title()} : {ex.get('s',0)}x{ex.get('r',0)} @ {ex.get('p',0)}kg")
                     except: pass
-                if row.image_fc: st.image(row.image_fc, caption="Analyse Graphique FC", width=400)
             
             with col_edit:
                 with st.popover("Éditer"):
@@ -388,9 +375,7 @@ with tabs[3]:
                         new_slp = st.number_input("Correction Sommeil (h)", 0.0, 15.0, float(row.sommeil_heures or 0))
                         new_vfc = st.number_input("Correction VFC", 0, 250, int(row.vfc or 0))
                         if st.form_submit_button("Appliquer"):
-                            # Si on édite le sommeil/VFC, on l'applique à TOUTE la journée pour que ce soit cohérent
                             db.query(Seance).filter(Seance.date == row.date).update({"sommeil_heures": new_slp, "vfc": new_vfc})
-                            # Le RPE et la durée ne s'appliquent qu'à la séance modifiée
                             db.query(Seance).filter(Seance.id == row.id).update({"rpe": new_rpe, "duree": new_dur})
                             db.commit(); st.rerun()
                 if st.button("Supprimer", key=f"del_{row.id}"):
@@ -414,7 +399,6 @@ with tabs[4]:
         
         if df_c.empty: st.warning("Données insuffisantes sur ce segment.")
         else:
-            # Dashboard Sommeil & VFC : GROUPBY DATE POUR EVITER LES DOUBLONS
             st.subheader("Analyse du Sommeil")
             df_sleep = df_c[df_c['sommeil_heures'] > 0].groupby('date').max().reset_index().sort_values('date')
             if not df_sleep.empty:
@@ -436,7 +420,6 @@ with tabs[4]:
             
             with col_d1:
                 st.subheader("Ratio de Charge ACWR")
-                # Exclure les lignes 'Mesures' pour ne pas fausser l'ACWR (bien qu'elles aient RPE 0)
                 df_efforts = df_c[df_c['type_seance'] != "Mesures"].copy()
                 df_efforts['charge'] = df_efforts['rpe'] * df_efforts['duree']
                 daily = df_efforts.groupby('date')['charge'].sum().reset_index()
