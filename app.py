@@ -573,11 +573,9 @@ with tabs[3]:
                 if st.button("🗑️ Supprimer", key=f"del_{row.id}", type="secondary"):
                     db.query(Seance).filter(Seance.id == row.id).delete()
                     db.commit(); st.rerun()
-                st.markdown("---")
-    else:
-        st.info("Aucune donnée enregistrée pour ce jour.")
-
-    # --- NOUVEAU : AFFICHAGE DU DEBRIEF COACH ---
+                
+                # --- AFFICHAGE DU DEBRIEF COACH ---
+                # On vérifie si un commentaire existe pour cette séance
                 commentaire_coach = db.query(Commentaire).filter(Commentaire.seance_id == row.id).first()
                 if commentaire_coach and commentaire_coach.texte:
                     st.info(f"👑 **Debrief de Coach Lilian :**\n\n{commentaire_coach.texte}")
