@@ -638,7 +638,7 @@ with tabs[5]:
 
     with col_rc1:
         # Récupération des records officiels de course
-        manuels_course = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo LIKE 'Course: %'", engine)
+        manuels_course = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo LIKE 'Course: %%'", engine)
         dict_manuels_course = {row['nom_exo'].replace("Course: ", ""): row['valeur_1rm'] for _, row in manuels_course.iterrows()}
         
         # Récupération des estimations Riegel
@@ -692,7 +692,7 @@ with tabs[5]:
                         
     with col_rf1:
         # On exclut les chronos de course pour n'afficher que la muscu
-        manuels_force = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo NOT LIKE 'Course: %'", engine)
+        manuels_force = pd.read_sql(f"SELECT * FROM records_manuels WHERE user_id = {uid} AND nom_exo NOT LIKE 'Course: %%'", engine)
         dict_manuels_force = dict(zip(manuels_force.nom_exo, manuels_force.valeur_1rm)) if not manuels_force.empty else {}
         
         all_exos = []
