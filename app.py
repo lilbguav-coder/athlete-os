@@ -34,12 +34,14 @@ Base = declarative_base()
 # --- TABLES AVEC USER_ID ---
 class Utilisateur(Base):
     __tablename__ = 'utilisateurs'
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True)
     password_hash = Column(String)
 
 class Seance(Base):
     __tablename__ = 'seances'
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer)
     date = Column(Date)
@@ -61,6 +63,7 @@ class Seance(Base):
 
 class Sante(Base):
     __tablename__ = 'sante'
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer)
     date = Column(Date)
@@ -77,6 +80,7 @@ class Sante(Base):
 
 class Planification(Base):
     __tablename__ = 'planification'
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer)
     date = Column(Date)
@@ -86,14 +90,11 @@ class Planification(Base):
 
 class RecordManuel(Base):
     __tablename__ = 'records_manuels'
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer)
     nom_exo = Column(String)
     valeur_1rm = Column(Float)
-
-Base.metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
-db = Session()
 
 # ==========================================
 # SYSTEME D'AUTHENTIFICATION
