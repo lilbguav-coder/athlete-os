@@ -714,10 +714,10 @@ with tabs[5]:
             with cols_run[i]:
                 st.metric(nom_dist, temps_str, source, delta_color="off")
                 if date_record is not None:
-                    # Bouton pour charger la date dans le journal
-                    if st.button(f"🔍 {date_record.strftime('%d/%m')}", key=f"btn_run_{nom_dist}"):
-                        st.session_state.sel_date = date_record
-                        st.success("Date chargée ! Ouvre l'onglet Journal.")
+                    # Nettoyage de la date et rechargement forcé
+                    if st.button(f"🔍 {pd.to_datetime(date_record).strftime('%d/%m/%Y')}", key=f"btn_run_{nom_dist}"):
+                        st.session_state.sel_date = pd.to_datetime(date_record).date()
+                        st.rerun()
 
     # -------------------------------------------
     # SECTION 2 : RECORDS DE FORCE
@@ -776,17 +776,14 @@ with tabs[5]:
         if best_pr_dict:
             sorted_prs = sorted(best_pr_dict.items(), key=lambda x: x[1]['1RM'], reverse=True)
             
-            c_pr = st.columns(3)
+           c_pr = st.columns(3)
             for idx, (exo, data) in enumerate(sorted_prs):
                 with c_pr[idx%3]:
                     st.metric(f"{exo}", f"{int(data['1RM'])} kg", data['source'], delta_color="off")
                     if data['date']:
-                        if st.button(f"🔍 {data['date'].strftime('%d/%m/%Y')}", key=f"btn_force_{exo}"):
-                            st.session_state.sel_date = data['date']
-                            st.success("Date chargée ! Ouvre l'onglet Journal.")
-        else:
-            st.info("Aucune donnée de musculation enregistrée.")
-
+                        if st.button(f"🔍 {pd.to_datetime(data['date']).strftime('%d/%m/%Y')}", key=f"btn_force_{exo}"):
+                            st.session_state.sel_date = pd.to_datetime(data['date']).date()
+                            st.rerun()
 
 # ==========================================
 # ONGLET 6 : BILAN IA & EXPORT PDF
