@@ -946,3 +946,93 @@ with tabs[6]:
                 """,
                 height=100
             )
+
+# ==========================================
+# ONGLET 8 : ESPACE COACH (ACCÈS RESTREINT)
+# ==========================================
+if is_coach:
+    with tabs[7]:
+        st.header("Supervision des Athlètes")
+        
+        # 1. Récupération des données
+        tous_utilisateurs = db.query(Utilisateur).filter(Utilisateur.id != uid).all()
+        mes_favoris = [f.athlete_id for f in db.query(FavorisCoach).filter(FavorisCoach.coach_id == uid).all()]
+        
+        # 2. Interface de Recherche et Filtre
+        col_rech, col_filt = st.columns([3, 1])
+        recherche = col_rech.text_input("🔍 Rechercher un athlète par pseudo...")
+        filtre_fav = col_filt.checkbox("⭐ Favoris uniquement")
+        
+        # Filtrage de la liste
+        utilisateurs_affiches = []
+        for u in tous_utilisateurs:
+            match_nom = recherche.lower() in u.username.lower()
+            match_fav = (u.id in mes_favoris) if filtre_fav else True
+            if match_nom and match_fav:
+                utilisateurs_affiches.append(u)
+                
+        # 3. Affichage de la liste et sélection
+        st.markdown("---")
+        if not utilisateurs_affiches:
+            st.info("Aucun athlète trouvé.")
+        else:
+            # On utilise les colonnes pour faire une belle liste de sélection
+            c_liste, c_data = st.columns([1, 2])
+            
+            with c_liste:
+                st.subheader("👥 Liste")
+                # On utilise le session_state pour mémoriser l'athlète cliqué
+                if 'selected_athlete_id' not in st.session_state:
+                    st.session_state.selected_athlete_id = None
+                    
+                for u in utilisateurs_affiches:
+                    is_fav = u.id in mes_favoris
+                    icon_fav = "⭐" if is_fav else "☆"
+                    
+                    c_btn1, c_btn2 = st.columns([4, 1])
+                    # Bouton pour voir l'athlète
+                    if c_btn1.button(f"👤 {u.username}", key=f"voir_{u.id}", use_container_width=True):
+                        st.session_state.selected_athlete_id = u.id
+                    
+                    # Bouton pour ajouter/retirer des favoris
+                    if c_btn2.button(icon_fav, key=f"fav_{u.id}"):
+                        if is_fav:
+                            db.query(FavorisCoach).filter(FavorisCoach.coach_id == uid, FavorisCoach.athlete_id == u.id).delete()
+                        else:
+                            db.add(FavorisCoach(coach_id=uid, athlete_id=u.id))
+                        db.commit()
+                        st.rerun()
+
+            # 4. Affichage des données de l'athlète sélectionné
+            with c_data:
+                if st.session_state.selected_athlete_id:
+                    ath_id = st.session_state.selected_athlete_id
+                    ath_name = next((u.username for u in tous_utilisateurs if u.id == ath_id), "Inconnu")
+                    
+                    st.subheader(f"📊 Dossier de {ath_name.upper()}")
+                    
+                    # On va chercher ses séances des 30 derniers jours
+                    trente_jours = today - timedelta(days=30)
+                    seances_ath = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {ath_id} AND date >= '{trente_jours}'", engine)
+                    
+                    if not seances_ath.empty:
+                        seances_ath['date'] = pd.to_datetime(seances_ath['date'])
+                        
+                        # Petits KPIs rapides pour le coach
+                        vol_total = seances_ath['duree'].sum() / 60
+                        dist_totale = seances_ath['dist_totale'].sum()
+                        
+                        c_k1, c_k2 = st.columns(2)
+                        c_k1.metric("Volume (30j)", f"{vol_total:.1f} h")
+                        c_k2.metric("Distance Course", f"{dist_totale:.1f} km")
+                        
+                        st.markdown("**Dernières activités :**")
+                        historique = seances_ath[seances_ath['type_seance'] != "Mesures"].sort_values('date', ascending=False).head(5)
+                        for _, row in historique.iterrows():
+                            date_str = row['date'].strftime('%d/%m')
+                            resume = f"{row['duree']} min | RPE {row['rpe']}"
+                            st.write(f"- **{date_str}** : {row['type_seance']} ({resume})")
+                    else:
+                        st.info("Cet athlète n'a enregistré aucune donnée ces 30 derniers jours.")
+                else:
+                    st.caption("👈 Sélectionne un athlète dans la liste pour voir ses données d'entraînement.")
