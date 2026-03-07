@@ -581,7 +581,6 @@ with tabs[3]:
                     st.info(f"👑 **Debrief de Coach Lilian :**\n\n{commentaire_coach.texte}")
                     
                 st.markdown("---")
-La magie de ce que tu viens de créer :
         
     # --- 3. FIL D'ACTUALITÉ (Historique récent) ---
     st.subheader("🔄 Dernières Activités")
