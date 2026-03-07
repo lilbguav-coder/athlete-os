@@ -469,74 +469,51 @@ with tabs[2]:
                 db.commit(); st.rerun()
 
 # ==========================================
-# ONGLET 3 : JOURNAL
+# ONGLET 3 : JOURNAL (OPTIMISÉ MOBILE)
 # ==========================================
 with tabs[3]: 
-    if 'cal_month' not in st.session_state: st.session_state.cal_month = today.month
-    if 'cal_year' not in st.session_state: st.session_state.cal_year = today.year
     if 'sel_date' not in st.session_state: st.session_state.sel_date = today
 
+    # --- 1. NAVIGATION COMPACTE ---
     col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
-    if col_nav1.button("◀"):
-        st.session_state.cal_month -= 1
-        if st.session_state.cal_month == 0: st.session_state.cal_month, st.session_state.cal_year = 12, st.session_state.cal_year - 1
-    if col_nav3.button("▶"):
-        st.session_state.cal_month += 1
-        if st.session_state.cal_month == 13: st.session_state.cal_month, st.session_state.cal_year = 1, st.session_state.cal_year + 1
+    if col_nav1.button("◀", use_container_width=True):
+        st.session_state.sel_date -= timedelta(days=1)
+        st.rerun()
+        
+    with col_nav2:
+        new_date = st.date_input("Date", st.session_state.sel_date, label_visibility="collapsed")
+        if new_date != st.session_state.sel_date:
+            st.session_state.sel_date = new_date
+            st.rerun()
             
-    col_nav2.markdown(f"<h3 style='text-align: center;'>{calendar.month_name[st.session_state.cal_month]} {st.session_state.cal_year}</h3>", unsafe_allow_html=True)
+    if col_nav3.button("▶", use_container_width=True):
+        st.session_state.sel_date += timedelta(days=1)
+        st.rerun()
 
-    df_all = pd.read_sql(f"SELECT * FROM seances WHERE user_id = {uid}", engine)
-    if not df_all.empty:
-        df_all['date'] = pd.to_datetime(df_all['date'])
-        df_mois = df_all[(df_all['date'].dt.month == st.session_state.cal_month) & (df_all['date'].dt.year == st.session_state.cal_year)].copy()
-        df_mois['date_str'] = df_mois['date'].dt.strftime('%Y-%m-%d')
-    else: df_mois = pd.DataFrame(columns=['date_str'])
-    
-    cal = calendar.Calendar(firstweekday=0)
-    month_days = cal.monthdatescalendar(st.session_state.cal_year, st.session_state.cal_month)
-    jours = ["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]
-    cols_jours = st.columns(7)
-    for i, j in enumerate(jours): cols_jours[i].write(f"**{j}**")
-    
-    for week in month_days:
-        cols_grille = st.columns(7)
-        for i, d in enumerate(week):
-            if d.month == st.session_state.cal_month:
-                seances_jour = df_mois[df_mois['date_str'] == d.strftime('%Y-%m-%d')]
-                indicator = "• " * len(seances_jour[seances_jour['type_seance'] != "Mesures"])
-                if cols_grille[i].button(f"{d.day} {indicator}", key=f"d_{d}", use_container_width=True):
-                    st.session_state.sel_date = d
-
+    jours_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+    nom_jour = jours_fr[st.session_state.sel_date.weekday()]
+    st.markdown(f"<h3 style='text-align: center; color: #4A90E2;'>{nom_jour} {st.session_state.sel_date.strftime('%d/%m/%Y')}</h3>", unsafe_allow_html=True)
     st.divider()
-    st.subheader(f"Données du {st.session_state.sel_date.strftime('%d/%m/%Y')}")
-    
-    # On récupère toutes les entrées du jour
+
+    # --- 2. DÉTAILS DU JOUR ---
     s_detail = db.query(Seance).filter(Seance.date == st.session_state.sel_date, Seance.user_id == uid).all()
     
     if s_detail:
-        # 1. D'abord, on cherche s'il y a des données de santé/sommeil ce jour-là
-        # On regarde sur n'importe quelle ligne car le sommeil peut être sur une ligne "Mesures" ou "Force"
+        # Santé et Sommeil
         has_health = any(s.sommeil_heures > 0 or s.vfc > 0 for s in s_detail)
-        
         if has_health:
-            # On prend la ligne qui a le plus de données de sommeil
             h = max(s_detail, key=lambda s: s.sommeil_heures)
-            with st.container():
-                st.markdown("#### 🌙 État de Forme & Sommeil")
-                c_h1, c_h2, c_h3 = st.columns(3)
-                if h.sommeil_heures: c_h1.write(f"**Sommeil:** {h.sommeil_heures}h (Qualité: {h.sommeil_qualite}/10)")
-                if h.vfc: c_h2.write(f"**VFC:** {h.vfc} ms")
-                if h.fc_nocturne: c_h3.write(f"**FC Repos:** {h.fc_nocturne} bpm")
-                st.markdown("---")
+            st.markdown("#### 🌙 État de Forme")
+            # Un seul bloc compact au lieu de 3 colonnes pour éviter les bugs d'affichage mobile
+            st.info(f"**Sommeil:** {h.sommeil_heures}h ({h.sommeil_qualite}/10) | **VFC:** {h.vfc} ms | **FC Repos:** {h.fc_nocturne} bpm")
 
-        # 2. Ensuite, on affiche les séances d'entraînement
+        # Entraînements
         for row in s_detail:
-            if row.type_seance == "Mesures": continue # On a déjà géré le sommeil plus haut
+            if row.type_seance == "Mesures": continue 
             
             with st.container():
                 st.markdown(f"#### 🏃 {row.type_seance}")
-                st.write(f"**RPE:** {row.rpe}/10 | **Vol:** {row.duree} min")
+                st.write(f"**Effort (RPE):** {row.rpe}/10 | **Durée:** {row.duree} min")
                 
                 if row.type_seance == "Course":
                     st.write(f"**Distance:** {row.dist_totale} km à {row.allure_moy} min/km")
@@ -550,17 +527,39 @@ with tabs[3]:
                     try:
                         for ex in ast.literal_eval(row.exercices):
                             if ex.get('s', 0) > 0: 
-                                st.write(f"- {ex.get('nom','')} : {ex.get('s',0)}x{ex.get('r',0)} @ {ex.get('p',0)}kg")
+                                st.markdown(f"- **{ex.get('nom','')}** : {ex.get('s',0)}x{ex.get('r',0)} @ {ex.get('p',0)}kg")
                             else: 
-                                st.write(f"- {ex.get('nom','')} @ {ex.get('p',0)}kg")
+                                st.markdown(f"- **{ex.get('nom','')}** @ {ex.get('p',0)}kg")
                     except: pass
                 
-                if st.button("🗑️ Supprimer cette séance", key=f"del_{row.id}"):
+                if st.button("🗑️ Supprimer", key=f"del_{row.id}", type="secondary"):
                     db.query(Seance).filter(Seance.id == row.id).delete()
                     db.commit(); st.rerun()
                 st.markdown("---")
     else:
         st.info("Aucune donnée enregistrée pour ce jour.")
+        
+    # --- 3. FIL D'ACTUALITÉ (Historique récent) ---
+    st.subheader("🔄 Dernières Activités")
+    recent_days = today - timedelta(days=30)
+    historique = db.query(Seance).filter(Seance.user_id == uid, Seance.date >= recent_days, Seance.type_seance != "Mesures").order_by(Seance.date.desc()).all()
+    
+    if historique:
+        # On affiche uniquement les 5 dernières activités pour ne pas saturer l'écran
+        for s in historique[:5]:
+            jours_courts = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+            date_str = f"{jours_courts[s.date.weekday()]} {s.date.strftime('%d/%m')}"
+            titre = f"**{date_str}** - {s.type_seance}"
+            resume = f"{s.duree} min"
+            if s.type_seance == "Course": resume += f" | {s.dist_totale} km"
+            elif s.type_seance in ["Force", "Hyrox", "Cross-Training"]: resume += f" | RPE {s.rpe}"
+            
+            # Ce bouton sert de raccourci : on clique, on voyage dans le temps jusqu'à ce jour !
+            if st.button(f"🔍 {titre} ({resume})", key=f"hist_{s.id}", use_container_width=True):
+                st.session_state.sel_date = s.date
+                st.rerun()
+    else:
+        st.caption("Aucune activité récente à afficher.")
 # ==========================================
 # ONGLET 4 : ANALYSES (OPTIMISÉ MOBILE)
 # ==========================================
