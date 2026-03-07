@@ -261,18 +261,29 @@ with col_p2:
                         prompt = f"Tu es un coach sportif d'élite. L'athlète te demande une séance aujourd'hui. Voici son historique de charge et de récupération des 7 derniers jours :\n{histo_txt}\n\nEn analysant cette semaine, propose-lui la meilleure séance possible aujourd'hui (course, force, cross-training ou repos total) en 3 ou 4 lignes maximum. Sois direct, précis et motivant."
                         response = model.generate_content(prompt)
                         st.success(f"(Modèle : {auto_model_name})\n\n{response.text}")
-                    except Exception as e:
+except Exception as e:
                         st.error(f"Détail du blocage : {e}")
                         
                         # --- LE CAMELEON EST ICI ---
                         auto_model_name = get_best_gemini_model()
                         model = genai.GenerativeModel(auto_model_name)
                         
+                        # Création de la variable vfc_txt en allant chercher la dernière mesure
+                        derniere_mesure = db.query(Seance).filter(Seance.user_id == uid, Seance.type_seance == "Mesures").order_by(Seance.date.desc()).first()
+                        if derniere_mesure and derniere_mesure.vfc:
+                            vfc_txt = f"VFC: {derniere_mesure.vfc} ms, Sommeil: {derniere_mesure.sommeil_heures}h"
+                        else:
+                            vfc_txt = "Pas de données VFC/Sommeil récentes."
+                        
                         prompt = f"Tu es un coach sportif d'élite. L'athlète te demande une séance aujourd'hui. Voici ses dernières constantes : {vfc_txt}. Propose-lui une seule séance courte et efficace (course ou force) adaptée à son état, en 3 lignes maximum. Sois direct et motivant."
-                        response = model.generate_content(prompt)
-                        st.success(f"(Modèle utilisé: {auto_model_name})\n\n{response.text}")
-                    except Exception as e:
-                        st.error(f"Détail du blocage : {e}")
+                        
+                        try:
+                            # On retente la génération avec le prompt de secours
+                            response = model.generate_content(prompt)
+                            st.success(f"(Modèle de secours utilisé: {auto_model_name})\n\n{response.text}")
+                        except Exception as e2:
+                            # Si ça plante encore, on affiche un message propre
+                            st.warning("L'IA est temporairement indisponible. Repose-toi ou fais un footing léger aujourd'hui ! 🏃‍♂️")
 
 # ==========================================
 # ONGLET 1 : SAISIE & GARMIN
