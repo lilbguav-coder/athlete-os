@@ -11,6 +11,9 @@ import ast
 import os
 import math
 import bcrypt
+import google.generativeai as genai
+from PIL import Image
+import json
 
 # --- CONFIG & STYLE ---
 st.set_page_config(page_title="Athlète OS", page_icon="logo.png", layout="wide")
@@ -25,10 +28,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONNEXION CLOUD ---
+# --- CONNEXION CLOUD & API IA ---
 db_url = st.secrets["DATABASE_URL"]
 engine = create_engine(db_url)
 Base = declarative_base()
+
+if "GEMINI_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # --- TABLES AVEC USER_ID ---
 class Utilisateur(Base):
@@ -123,24 +129,20 @@ if 'user_id' not in st.session_state:
                     st.session_state.username = u.username
                     st.rerun()
                 else: st.error("Identifiants incorrects.")
-                    
     with col2:
         st.subheader("Créer un compte")
         with st.form("register_form"):
             new_user = st.text_input("Nouvel Identifiant")
             new_pwd = st.text_input("Mot de passe", type="password")
             if st.form_submit_button("S'inscrire"):
-                if db.query(Utilisateur).filter(Utilisateur.username == new_user).first():
-                    st.error("Cet identifiant est déjà pris.")
+                if db.query(Utilisateur).filter(Utilisateur.username == new_user).first(): st.error("Identifiant pris.")
                 elif len(new_pwd) < 4: st.warning("Mot de passe trop court.")
                 else:
                     h_pwd = bcrypt.hashpw(new_pwd.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                     db.add(Utilisateur(username=new_user, password_hash=h_pwd))
-                    db.commit()
-                    st.success("Compte créé avec succès ! Connecte-toi à gauche.")
+                    db.commit(); st.success("Compte créé ! Connecte-toi à gauche.")
     st.stop()
 
-# --- Connecté ---
 uid = st.session_state.user_id
 st.sidebar.success(f"Pilote : **{st.session_state.username}**")
 if st.sidebar.button("Déconnexion"):
@@ -182,8 +184,8 @@ def sec_to_time_str(seconds):
 def estimate_riegel(dist_ref, sec_ref, dist_cible):
     return sec_ref * (dist_cible / dist_ref)**1.06 if dist_ref > 0 else 0
 
-def calc_body_fat(poids, taille, cou, ventre):
-    try: return 495 / (1.0324 - 0.19077 * (math.log10(ventre - cou)) + 0.15456 * (math.log10(taille))) - 450
+def calc_body_fat(p, t, c, v):
+    try: return 495 / (1.0324 - 0.19077 * (math.log10(v - c)) + 0.15456 * (math.log10(t))) - 450
     except: return 0
 
 # --- INTERFACE ---
@@ -191,31 +193,52 @@ tabs = st.tabs(["Planification", "Saisie", "Santé", "Journal", "Analyses", "Rec
 today = datetime.now().date()
 
 # ==========================================
-# ONGLET 0 : PLANIFICATION
+# ONGLET 0 : PLANIFICATION & IA COACH
 # ==========================================
 with tabs[0]: 
-    st.header("Plan du jour")
-    plan_today = db.query(Planification).filter(Planification.date == today, Planification.user_id == uid).all()
-    if plan_today:
-        for p in plan_today:
-            st.info(f"**{p.titre}**\n\n{p.description}")
-            if st.button(f"Marquer comme fait", key=f"done_{p.id}"):
-                db.query(Planification).filter(Planification.id == p.id).delete()
-                db.commit(); st.rerun()
-    else: st.success("Aucune séance programmée aujourd'hui.")
+    col_p1, col_p2 = st.columns([2, 1])
+    with col_p1:
+        st.header("Plan du jour")
+        plan_today = db.query(Planification).filter(Planification.date == today, Planification.user_id == uid).all()
+        if plan_today:
+            for p in plan_today:
+                st.info(f"**{p.titre}**\n\n{p.description}")
+                if st.button(f"Marquer comme fait", key=f"done_{p.id}"):
+                    db.query(Planification).filter(Planification.id == p.id).delete()
+                    db.commit(); st.rerun()
+        else: st.success("Aucune séance programmée aujourd'hui.")
 
-    st.divider()
-    st.subheader("Programmer une séance")
-    with st.form("add_plan"):
-        p_date = st.date_input("Date", today)
-        p_titre = st.text_input("Titre")
-        p_desc = st.text_area("Description")
-        if st.form_submit_button("Ajouter"):
-            db.add(Planification(user_id=uid, date=p_date, titre=p_titre, description=p_desc, statut="Programmé"))
-            db.commit(); st.success("Ajouté !"); st.rerun()
+        st.divider()
+        st.subheader("Programmer une séance")
+        with st.form("add_plan"):
+            p_date = st.date_input("Date", today)
+            p_titre = st.text_input("Titre")
+            p_desc = st.text_area("Description")
+            if st.form_submit_button("Ajouter au calendrier"):
+                db.add(Planification(user_id=uid, date=p_date, titre=p_titre, description=p_desc, statut="Programmé"))
+                db.commit(); st.success("Ajouté !"); st.rerun()
+
+    with col_p2:
+        st.subheader("🤖 Assistant IA")
+        st.markdown("Générer une séance optimale basée sur ta récupération actuelle.")
+        if st.button("Consulter l'IA", type="primary"):
+            if "GEMINI_API_KEY" not in st.secrets:
+                st.error("L'IA n'est pas activée. Ajoute ta GEMINI_API_KEY dans les secrets Streamlit.")
+            else:
+                with st.spinner("Analyse de tes données en cours..."):
+                    try:
+                        recent = db.query(Seance).filter(Seance.user_id == uid).order_by(Seance.date.desc()).first()
+                        vfc_txt = f"VFC: {recent.vfc}ms, Sommeil: {recent.sommeil_heures}h." if recent else "Pas de données récentes."
+                        
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        prompt = f"Tu es un coach sportif d'élite. L'athlète te demande une séance aujourd'hui. Voici ses dernières constantes : {vfc_txt}. Propose-lui une seule séance courte et efficace (course ou force) adaptée à son état, en 3 lignes maximum. Sois direct et motivant."
+                        response = model.generate_content(prompt)
+                        st.success(response.text)
+                    except Exception as e:
+                        st.error("Erreur avec l'IA. Vérifie ta clé API.")
 
 # ==========================================
-# ONGLET 1 : SAISIE
+# ONGLET 1 : SAISIE & GARMIN
 # ==========================================
 with tabs[1]: 
     tab_matin, tab_seance = st.tabs(["🌅 Matin", "🏋️ Entraînement"])
@@ -246,14 +269,35 @@ with tabs[1]:
     with tab_seance:
         mode = st.radio("Modalité", ["Force", "Hyrox", "Course", "Cross-Training", "Repos"], horizontal=True)
         d_date_ent = st.date_input("Date de séance", today, key="date_ent")
-        current_exos, dist_tot, allure_m, shoe, fc_moy, img_path = [], 0.0, "00:00", None, 0, None
+        current_exos, dist_tot, allure_m, shoe, fc_moy = [], 0.0, "00:00", None, 0
         
         if mode != "Repos":
             c_r1, c_r2 = st.columns(2)
             rpe = c_r1.slider("RPE (Effort 1-10)", 1, 10, 5)
-            dur = c_r2.number_input("Durée (min)", 0, 480, 60)
+            dur = c_r2.number_input("Durée (min)", 0, 480, 60, key="dur_input")
             
             if mode == "Course":
+                with st.expander("⌚ Importer depuis Garmin (Photo)", expanded=False):
+                    uploaded_file = st.file_uploader("Capture d'écran Garmin", type=["jpg", "jpeg", "png"])
+                    if uploaded_file is not None:
+                        if st.button("Analyser l'image avec l'IA"):
+                            if "GEMINI_API_KEY" not in st.secrets:
+                                st.error("Ajoute ta clé GEMINI_API_KEY dans les secrets Streamlit pour utiliser cette fonction.")
+                            else:
+                                with st.spinner("Lecture des données en cours..."):
+                                    try:
+                                        img = Image.open(uploaded_file)
+                                        model = genai.GenerativeModel('gemini-1.5-flash')
+                                        prompt = "Analyse cette image d'une application de course (Garmin/Strava). Renvoie uniquement un format JSON strict avec ces clés exactes : 'distance' (float, en km), 'duree' (int, en minutes totales), 'allure' (string, format MM:SS), 'fc_moyenne' (int, battements par minute). Ne mets aucun autre texte."
+                                        response = model.generate_content([prompt, img])
+                                        txt = response.text.replace("```json", "").replace("```", "").strip()
+                                        data_ia = json.loads(txt)
+                                        st.success("Données extraites avec succès !")
+                                        st.write(f"📏 Distance: {data_ia.get('distance')} km | ⏱️ Durée: {data_ia.get('duree')} min | 🏃 Allure: {data_ia.get('allure')} | ❤️ FC: {data_ia.get('fc_moyenne')} bpm")
+                                        st.info("Copie ces valeurs dans les cases ci-dessous 👇")
+                                    except Exception as e:
+                                        st.error(f"L'IA n'a pas pu lire l'image correctement.")
+
                 c_c1, c_c2 = st.columns(2)
                 dist_tot = c_c1.number_input("Distance (km)", 0.0)
                 allure_m = c_c2.text_input("Allure (min:sec)", "05:00")
@@ -297,15 +341,12 @@ with tabs[1]:
             i_slpq = base.sommeil_qualite if base else 0
             i_vfc = base.vfc if base else 0
             i_fcn = base.fc_nocturne if base else 0
-            
             inter = str(st.session_state.get('blks', [])) if mode == "Cross-Training" else "[]"
             
             db.add(Seance(user_id=uid, date=d_date_ent, type_seance=mode, rpe=rpe, duree=dur, 
                           exercices=str(current_exos), intervalles=inter, dist_totale=dist_tot, allure_moy=allure_m, fc_moy=fc_moy,
                           sommeil_heures=i_slp, sommeil_qualite=i_slpq, vfc=i_vfc, fc_nocturne=i_fcn))
-            db.commit()
-            st.session_state.blks = []
-            st.success("Séance sauvegardée ! ✅"); st.rerun()
+            db.commit(); st.session_state.blks = []; st.success("Séance sauvegardée ! ✅"); st.rerun()
 
 # ==========================================
 # ONGLET 2 : SANTÉ
@@ -313,8 +354,6 @@ with tabs[1]:
 with tabs[2]: 
     st.subheader("Carnet de Santé")
     h_date = st.date_input("Date de la mesure", today, key="date_sante")
-    
-    # On va chercher s'il y a déjà des données existantes pour cette date
     exist_s = db.query(Sante).filter(Sante.date == h_date, Sante.user_id == uid).first()
     
     with st.expander("⚖️ Poids & Mensurations", expanded=True):
@@ -324,13 +363,10 @@ with tabs[2]:
             h_taille = c2.number_input("Taille (cm)", 0.0, 250.0, float(exist_s.taille) if exist_s and exist_s.taille else 0.0)
             h_ventre = c1.number_input("Ventre (cm)", 0.0, 200.0, float(exist_s.ventre) if exist_s and exist_s.ventre else 0.0)
             h_cou = c2.number_input("Cou (cm)", 0.0, 100.0, float(exist_s.cou) if exist_s and exist_s.cou else 0.0)
-            
             if st.form_submit_button("Valider Mensurations"):
                 mg = calc_body_fat(h_poids, h_taille, h_cou, h_ventre) if h_poids>0 and h_taille>0 and h_ventre>0 and h_cou>0 else None
-                if exist_s:
-                    db.query(Sante).filter(Sante.id == exist_s.id).update({"poids": h_poids or None, "taille": h_taille or None, "ventre": h_ventre or None, "cou": h_cou or None, "mg_estimee": mg})
-                else:
-                    db.add(Sante(user_id=uid, date=h_date, poids=h_poids or None, taille=h_taille or None, ventre=h_ventre or None, cou=h_cou or None, mg_estimee=mg))
+                if exist_s: db.query(Sante).filter(Sante.id == exist_s.id).update({"poids": h_poids or None, "taille": h_taille or None, "ventre": h_ventre or None, "cou": h_cou or None, "mg_estimee": mg})
+                else: db.add(Sante(user_id=uid, date=h_date, poids=h_poids or None, taille=h_taille or None, ventre=h_ventre or None, cou=h_cou or None, mg_estimee=mg))
                 db.commit(); st.rerun()
 
     with st.expander("🍎 Nutrition journalière"):
@@ -338,12 +374,9 @@ with tabs[2]:
             c3, c4 = st.columns(2)
             h_cal = c3.number_input("Calories (kcal)", 0, 10000, int(exist_s.calories) if exist_s and exist_s.calories else 0)
             h_prot = c4.number_input("Protéines (g)", 0, 500, int(exist_s.proteines) if exist_s and exist_s.proteines else 0)
-            
             if st.form_submit_button("Valider Nutrition"):
-                if exist_s:
-                    db.query(Sante).filter(Sante.id == exist_s.id).update({"calories": h_cal or None, "proteines": h_prot or None})
-                else:
-                    db.add(Sante(user_id=uid, date=h_date, calories=h_cal or None, proteines=h_prot or None))
+                if exist_s: db.query(Sante).filter(Sante.id == exist_s.id).update({"calories": h_cal or None, "proteines": h_prot or None})
+                else: db.add(Sante(user_id=uid, date=h_date, calories=h_cal or None, proteines=h_prot or None))
                 db.commit(); st.rerun()
 
     with st.expander("🩹 Suivi des Douleurs"):
@@ -352,12 +385,9 @@ with tabs[2]:
             idx_b = bless_list.index(exist_s.blessure_nom) if exist_s and exist_s.blessure_nom in bless_list else 0
             h_bless = st.selectbox("Localisation", bless_list, index=idx_b)
             h_grav = st.slider("Douleur (0-10)", 0, 10, int(exist_s.blessure_gravite) if exist_s and exist_s.blessure_gravite else 0)
-            
             if st.form_submit_button("Valider Douleur"):
-                if exist_s:
-                    db.query(Sante).filter(Sante.id == exist_s.id).update({"blessure_nom": h_bless, "blessure_gravite": h_grav})
-                else:
-                    db.add(Sante(user_id=uid, date=h_date, blessure_nom=h_bless, blessure_gravite=h_grav))
+                if exist_s: db.query(Sante).filter(Sante.id == exist_s.id).update({"blessure_nom": h_bless, "blessure_gravite": h_grav})
+                else: db.add(Sante(user_id=uid, date=h_date, blessure_nom=h_bless, blessure_gravite=h_grav))
                 db.commit(); st.rerun()
 
 # ==========================================
@@ -387,7 +417,6 @@ with tabs[3]:
     
     cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdatescalendar(st.session_state.cal_year, st.session_state.cal_month)
-    
     jours = ["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"]
     cols_jours = st.columns(7)
     for i, j in enumerate(jours): cols_jours[i].write(f"**{j}**")
@@ -410,13 +439,9 @@ with tabs[3]:
             with st.container():
                 st.markdown(f"#### {row.type_seance}")
                 st.write(f"**RPE:** {row.rpe}/10 | **Vol:** {row.duree} min")
-                
-                if row.type_seance == "Course":
-                    st.write(f"**Distance:** {row.dist_totale} km à {row.allure_moy} min/km")
+                if row.type_seance == "Course": st.write(f"**Distance:** {row.dist_totale} km à {row.allure_moy} min/km")
                 elif row.type_seance == "Cross-Training" and row.intervalles and row.intervalles != "[]":
-                    try:
-                        wod_data = ast.literal_eval(row.intervalles)[0]
-                        st.write(f"**WOD {wod_data.get('format', '')}** : {wod_data.get('score', '')}")
+                    try: st.write(f"**WOD {ast.literal_eval(row.intervalles)[0].get('format', '')}** : {ast.literal_eval(row.intervalles)[0].get('score', '')}")
                     except: pass
                 
                 if row.exercices and row.exercices not in ["[]", "None"]:
