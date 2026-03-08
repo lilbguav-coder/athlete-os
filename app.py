@@ -1105,8 +1105,15 @@ if is_coach:
                                 col_d.write(f"**{s.date.strftime('%d/%m/%y')}**")
                                 col_t.write(f"{s.type_seance}")
                                 col_r.write(f"RPE {s.rpe}")
-                                if s.exercices and s.exercices != "[]":
-                                    st.caption(f"Détails : {s.exercices}")
+                                if s.exercices and s.exercices not in ["[]", "None"]:
+                                    try:
+                                        for ex in ast.literal_eval(s.exercices):
+                                            if ex.get('s', 0) > 0: 
+                                                st.markdown(f"- **{ex.get('nom','')}** : {ex.get('s',0)}x{ex.get('r',0)} @ {ex.get('p',0)}kg")
+                                            else: 
+                                                st.markdown(f"- **{ex.get('nom','')}** @ {ex.get('p',0)}kg")
+                                    except:
+                                        st.write(f"**Détails:** {s.exercices}")
                                 st.divider()
                         else:
                             st.info("Aucun historique disponible.")
