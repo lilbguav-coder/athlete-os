@@ -1139,12 +1139,12 @@ if is_coach:
                     st.caption("👈 Sélectionne un athlète dans la liste pour voir ses données et interagir.")
                             
                             # Calcul de la charge aiguë (7j) et chronique (28j)
-                            df_ath = df_ath.groupby('date')['charge'].sum().reset_index()
-                            df_ath = df_ath.set_index('date').reindex(pd.date_range(df_ath['date'].min(), today), fill_value=0).reset_index()
-                            df_ath.columns = ['date', 'charge']
-                            df_ath['aigu'] = df_ath['charge'].rolling(window=7).mean()
-                            df_ath['chronique'] = df_ath['charge'].rolling(window=28).mean()
-                            df_ath['ratio'] = df_ath['aigu'] / df_ath['chronique']
+                        df_ath = df_ath.groupby('date')['charge'].sum().reset_index()
+                        df_ath = df_ath.set_index('date').reindex(pd.date_range(df_ath['date'].min(), today), fill_value=0).reset_index()
+                        df_ath.columns = ['date', 'charge']
+                        df_ath['aigu'] = df_ath['charge'].rolling(window=7).mean()
+                        df_ath['chronique'] = df_ath['charge'].rolling(window=28).mean()
+                        df_ath['ratio'] = df_ath['aigu'] / df_ath['chronique']
 
                             # Graphique de charge
                             fig_coach = go.Figure()
