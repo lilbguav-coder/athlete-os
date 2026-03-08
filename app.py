@@ -93,6 +93,8 @@ class Seance(Base):
     chaussures = Column(String)
     pre_check = Column(Text)
     image_fc = Column(String)
+    fc_moyenne = Column(Integer, default=0)
+    fc_max = Column(Integer, default=0)
 
 class Sante(Base):
     __tablename__ = 'sante'
