@@ -148,13 +148,14 @@ Session = sessionmaker(bind=engine)
 db = Session()
 from sqlalchemy import text
 # --- MISE À JOUR FORCÉE DE LA BASE DE DONNÉES ---
+from sqlalchemy import text
 try:
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE seances ADD COLUMN fc_moyenne INTEGER DEFAULT 0"))
-        conn.execute(text("ALTER TABLE seances ADD COLUMN fc_max INTEGER DEFAULT 0"))
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE seances ADD COLUMN IF NOT EXISTS fc_moyenne INTEGER DEFAULT 0"))
+        conn.execute(text("ALTER TABLE seances ADD COLUMN IF NOT EXISTS fc_max INTEGER DEFAULT 0"))
+        conn.commit()
 except Exception:
-    pass # Si les colonnes existent déjà, ça ignore l'erreur sans planter
-
+    pass
 # ==========================================
 # SYSTEME D'AUTHENTIFICATION & BRANDING
 # ==========================================
