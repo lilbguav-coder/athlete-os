@@ -146,6 +146,14 @@ class Commentaire(Base):
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 db = Session()
+from sqlalchemy import text
+# --- MISE À JOUR FORCÉE DE LA BASE DE DONNÉES ---
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE seances ADD COLUMN fc_moyenne INTEGER DEFAULT 0"))
+        conn.execute(text("ALTER TABLE seances ADD COLUMN fc_max INTEGER DEFAULT 0"))
+except Exception:
+    pass # Si les colonnes existent déjà, ça ignore l'erreur sans planter
 
 # ==========================================
 # SYSTEME D'AUTHENTIFICATION & BRANDING
