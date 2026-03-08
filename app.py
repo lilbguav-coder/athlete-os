@@ -1066,3 +1066,52 @@ if is_coach:
                         st.info("Aucune activité récente pour cet athlète.")
                 else:
                     st.caption("👈 Sélectionne un athlète dans la liste pour voir ses données et interagir.")
+
+# --- ACTION 3 : CONSULTATION DU JOURNAL DÉTAILLÉ ---
+                    with st.expander(f"📖 Consulter le Journal complet de {ath_name}", expanded=False):
+                        # On récupère toutes les séances de l'athlète
+                        all_seances_ath = db.query(Seance).filter(Seance.user_id == ath_id).order_by(Seance.date.desc()).all()
+                        if all_seances_ath:
+                            for s in all_seances_ath:
+                                col_d, col_t, col_r = st.columns([1, 2, 1])
+                                col_d.write(f"**{s.date.strftime('%d/%m/%y')}**")
+                                col_t.write(f"{s.type_seance}")
+                                col_r.write(f"RPE {s.rpe}")
+                                if s.exercices and s.exercices != "[]":
+                                    st.caption(f"Détails : {s.exercices}")
+                                st.divider()
+                        else:
+                            st.info("Aucun historique disponible.")
+
+                    # --- ACTION 4 : ANALYSE DE LA CHARGE (ACWR) DE L'ATHLÈTE ---
+                    with st.expander(f"📉 Analyser la forme et la charge de {ath_name}", expanded=False):
+                        # On récupère les données pour le calcul de charge
+                        df_ath = pd.read_sql(f"SELECT date, rpe, duree FROM seances WHERE user_id = {ath_id}", engine)
+                        if not df_ath.empty:
+                            df_ath['date'] = pd.to_datetime(df_ath['date'])
+                            df_ath['charge'] = df_ath['rpe'] * df_ath['duree']
+                            
+                            # Calcul de la charge aiguë (7j) et chronique (28j)
+                            df_ath = df_ath.groupby('date')['charge'].sum().reset_index()
+                            df_ath = df_ath.set_index('date').reindex(pd.date_range(df_ath['date'].min(), today), fill_value=0).reset_index()
+                            df_ath.columns = ['date', 'charge']
+                            df_ath['aigu'] = df_ath['charge'].rolling(window=7).mean()
+                            df_ath['chronique'] = df_ath['charge'].rolling(window=28).mean()
+                            df_ath['ratio'] = df_ath['aigu'] / df_ath['chronique']
+
+                            # Graphique de charge
+                            fig_coach = go.Figure()
+                            fig_coach.add_trace(go.Scatter(x=df_ath['date'], y=df_ath['aigu'], name="Fatigue (7j)", line=dict(color='#FF4B4B')))
+                            fig_coach.add_trace(go.Scatter(x=df_ath['date'], y=df_ath['chronique'], name="Forme (28j)", line=dict(color='#4A90E2')))
+                            st.plotly_chart(fig_coach, use_container_width=True)
+                            
+                            # Indicateur de risque
+                            dernier_ratio = df_ath['ratio'].iloc[-1]
+                            if 0.8 <= dernier_ratio <= 1.3:
+                                st.success(f"✅ Ratio optimal : {dernier_ratio:.2f} (Prêt pour la performance)")
+                            elif dernier_ratio > 1.5:
+                                st.error(f"⚠️ Risque de blessure élevé : {dernier_ratio:.2f} (Surentraînement)")
+                            else:
+                                st.warning(f"ℹ️ Ratio : {dernier_ratio:.2f} (Sous-entraînement ou reprise)")
+                        else:
+                            st.info("Pas assez de données pour calculer la charge.")
