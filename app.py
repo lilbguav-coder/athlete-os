@@ -421,24 +421,36 @@ with tabs[1]:
                 allure_m = c_c2.text_input("Allure (min:sec)", "05:00")
                 fc_moy = c_c1.number_input("FC Moyenne", 0, 220, 0)
                 
-            elif mode == "Cross-Training":
-                st.markdown("### Détails du WOD")
+            elif mode in ["Cross-Training", "Hyrox"]:
+                st.markdown("### 🦍 Détails du Circuit / WOD")
                 c_ct1, c_ct2 = st.columns(2)
-                wod_format = c_ct1.selectbox("Format", ["AMRAP", "EMOM", "FOR TIME", "TABATA", "CHIPPER", "AUTRE"])
-                wod_score = c_ct2.text_input("Score (Temps, Tours, Reps...)", placeholder="ex: 4 tours + 10 reps")
-                st.session_state.blks = [{'format': wod_format, 'score': wod_score}]
+                wod_format = c_ct1.selectbox("Format", ["FOR TIME", "AMRAP", "EMOM", "CHIPPER", "TABATA", "AUTRE"])
+                wod_score = c_ct2.text_input("Score (Temps, Tours...)", placeholder="ex: 24:30 ou 4 tours")
                 
-                st.markdown("Mouvements inclus (optionnel)")
-                nb = st.number_input("Nombre d'exos", 0, 20, 1)
-                for i in range(nb):
-                    cols = st.columns([3, 2, 1, 1, 1])
-                    nom = cols[0].selectbox(f"Mouvement {i+1}", [""] + get_options_exos() + ["+ Saisir nouveau"], key=f"ct_nom_{i}")
-                    if nom == "+ Saisir nouveau": nom = cols[0].text_input(f"Nouveau", key=f"ct_new_{i}")
-                    grp = cols[1].selectbox("Muscle", ["Full Body", "Jambes", "Dos", "Pecs", "Epaules", "Bras"], key=f"ct_grp_{i}")
-                    p = cols[4].number_input("Charge", 0.0, key=f"ct_p_{i}")
-                    if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": 1, "r": 0, "p": p})
+                # --- LES NOUVELLES CASES CARDIAQUES ---
+                c_cardio1, c_cardio2 = st.columns(2)
+                wod_fc_moy = c_cardio1.number_input("❤️ FC Moyenne (bpm)", 0, 220, 0)
+                wod_fc_max = c_cardio2.number_input("⚡ FC Max (bpm)", 0, 220, 0)
+                
+                # --- LA GRANDE ZONE POUR COPIER-COLLER TON WOD ---
+                wod_details = st.text_area("Contenu de la séance", placeholder="Colle ici ton circuit complet...", height=150)
+                
+                st.session_state.blks = [{'format': wod_format, 'score': wod_score, 'details': wod_details, 'fc_moy': wod_fc_moy, 'fc_max': wod_fc_max}]
+                
+                with st.expander("➕ Isoler un mouvement spécifique (Optionnel)", expanded=False):
+                    st.caption("Utile si tu veux tracker une charge précise (ex: Sled Push)")
+                    nb = st.number_input("Nombre d'exos à extraire", 0, 10, 0)
+                    for i in range(nb):
+                        cols = st.columns([3, 2, 1, 1, 1])
+                        nom = cols[0].selectbox(f"Mouvement {i+1}", [""] + get_options_exos() + ["+ Saisir nouveau"], key=f"ct_nom_{i}")
+                        if nom == "+ Saisir nouveau": nom = cols[0].text_input(f"Nouveau", key=f"ct_new_{i}")
+                        grp = cols[1].selectbox("Muscle", ["Full Body", "Jambes", "Dos", "Pecs", "Epaules", "Bras"], key=f"ct_grp_{i}")
+                        s = cols[2].number_input("Séries", 0, key=f"ct_s_{i}")
+                        r = cols[3].number_input("Reps", 0, key=f"ct_r_{i}")
+                        p = cols[4].number_input("Charge", 0.0, key=f"ct_p_{i}")
+                        if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": s, "r": r, "p": p})
 
-            elif mode in ["Force", "Hyrox"]:
+            elif mode == "Force":
                 nb = st.number_input("Nombre d'exercices", 1, 20, 1)
                 for i in range(nb):
                     cols = st.columns([3, 2, 1, 1, 1])
@@ -449,9 +461,6 @@ with tabs[1]:
                     r = cols[3].number_input("Reps", 0, key=f"force_r_{i}")
                     p = cols[4].number_input("Charge", 0.0, key=f"force_p_{i}")
                     if nom: current_exos.append({"nom": nom.strip().title(), "groupe": grp, "s": s, "r": r, "p": p})
-        else:
-            rpe, dur = 0, 0
-            st.info("Jour de repos complet sélectionné.")
 
         if st.button("Enregistrer ma séance", type="primary"):
             base = db.query(Seance).filter(Seance.date == d_date_ent, Seance.user_id == uid).first()
