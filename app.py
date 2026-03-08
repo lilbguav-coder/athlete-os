@@ -468,10 +468,19 @@ with tabs[1]:
             i_slpq = base.sommeil_qualite if base else 0
             i_vfc = base.vfc if base else 0
             i_fcn = base.fc_nocturne if base else 0
-            inter = str(st.session_state.get('blks', [])) if mode == "Cross-Training" else "[]"
+            
+            # --- MODIFICATION ICI POUR LE WOD ET LE COEUR ---
+            inter = str(st.session_state.get('blks', [])) if mode in ["Cross-Training", "Hyrox", "Course"] else "[]"
+            
+            fc_moy_val = fc_moy
+            fc_max_val = 0
+            if mode in ["Cross-Training", "Hyrox"] and st.session_state.get('blks'):
+                fc_moy_val = st.session_state.blks[0].get('fc_moy', 0)
+                fc_max_val = st.session_state.blks[0].get('fc_max', 0)
             
             db.add(Seance(user_id=uid, date=d_date_ent, type_seance=mode, rpe=rpe, duree=dur, 
-                          exercices=str(current_exos), intervalles=inter, dist_totale=dist_tot, allure_moy=allure_m, fc_moy=fc_moy,
+                          exercices=str(current_exos), intervalles=inter, dist_totale=dist_tot, allure_moy=allure_m, 
+                          fc_moyenne=fc_moy_val, fc_max=fc_max_val, # <--- ENREGISTREMENT DU COEUR
                           sommeil_heures=i_slp, sommeil_qualite=i_slpq, vfc=i_vfc, fc_nocturne=i_fcn))
             db.commit(); st.session_state.blks = []; st.success("Séance sauvegardée ! ✅"); st.rerun()
 
