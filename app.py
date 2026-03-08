@@ -147,15 +147,7 @@ Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 db = Session()
 from sqlalchemy import text
-# --- MISE À JOUR FORCÉE DE LA BASE DE DONNÉES ---
-from sqlalchemy import text
-try:
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE seances ADD COLUMN IF NOT EXISTS fc_moyenne INTEGER DEFAULT 0"))
-        conn.execute(text("ALTER TABLE seances ADD COLUMN IF NOT EXISTS fc_max INTEGER DEFAULT 0"))
-        conn.commit()
-except Exception:
-    pass
+
 # ==========================================
 # SYSTEME D'AUTHENTIFICATION & BRANDING
 # ==========================================
@@ -238,6 +230,12 @@ def estimate_riegel(dist_ref, sec_ref, dist_cible):
 def calc_body_fat(p, t, c, v):
     try: return 495 / (1.0324 - 0.19077 * (math.log10(v - c)) + 0.15456 * (math.log10(t))) - 450
     except: return 0
+
+# --- OPTIMISATION DE LA VITESSE (CACHE) ---
+@st.cache_data(ttl=300) # Garde en mémoire pendant 5 minutes
+def charger_donnees_athlete(user_id):
+    # On passe l'URL en texte brut pour que le cache fonctionne sans erreur
+    return pd.read_sql(f"SELECT * FROM seances WHERE user_id = {user_id}", st.secrets["DATABASE_URL"])
 
 # --- INTERFACE ---
 # --- DÉFINITION DES ONGLETS DYNAMIQUES ---
