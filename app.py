@@ -639,7 +639,7 @@ with tabs[4]:
         df_c['date'] = pd.to_datetime(df_c['date'])
         
         st.subheader("Analyse du Sommeil")
-        df_sleep = df_c[df_c['sommeil_heures'] > 0].groupby('date').max().reset_index().sort_values('date')
+        df_sleep = df_c[df_c['sommeil_heures'] > 0][['date', 'sommeil_heures', 'sommeil_qualite']].groupby('date').max().reset_index().sort_values('date')
         if not df_sleep.empty:
             fig_sleep = make_subplots(specs=[[{"secondary_y": True}]])
             fig_sleep.add_trace(go.Bar(x=df_sleep['date'], y=df_sleep['sommeil_heures'], name="Heures", marker_color="#3A506B"), secondary_y=False)
