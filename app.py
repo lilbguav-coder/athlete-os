@@ -1060,7 +1060,7 @@ if is_coach:
                             if st.form_submit_button("Envoyer au calendrier de l'athlète"):
                                 db.add(Planification(user_id=ath_id, date=pc_date, titre=pc_titre, description=pc_desc, statut="Programmé par Coach Lilian"))
                                 db.commit()
-                                st.success(f"Séance envoyée directement dans l'agenda de {ath_name} !")
+                                st.success(f"Séance envoyée dans l'agenda de {ath_name} !")
                                 st.rerun()
 
                     # --- ACTION 2 : FEEDBACK SUR LES DERNIÈRES SÉANCES ---
@@ -1075,37 +1075,8 @@ if is_coach:
                             
                             with st.expander(f"🏃 {date_str} : {s.type_seance} ({resume})"):
                                 if s.type_seance == "Course": st.write(f"**Distance:** {s.dist_totale} km | **Allure:** {s.allure_moy}")
-                                if s.exercices and s.exercices not in ["[]", "None"]: st.write(f"**Détails:** {s.exercices}")
                                 
-                                # Récupération d'un commentaire existant
-                                existing_comment = db.query(Commentaire).filter(Commentaire.seance_id == s.id).first()
-                                def_text = existing_comment.texte if existing_comment else ""
-                                
-                                # Formulaire de Debrief
-                                c_txt = st.text_area("📝 Ton debrief de Coach :", value=def_text, key=f"txt_{s.id}")
-                                if st.button("Enregistrer le debrief", key=f"btn_comment_{s.id}"):
-                                    if existing_comment:
-                                        existing_comment.texte = c_txt
-                                    else:
-                                        db.add(Commentaire(seance_id=s.id, texte=c_txt))
-                                    db.commit()
-                                    st.success("Debrief sauvegardé !")
-                                    st.rerun()
-                    else:
-                        st.info("Aucune activité récente pour cet athlète.")
-                else:
-                    st.caption("👈 Sélectionne un athlète dans la liste pour voir ses données et interagir.")
-
-# --- ACTION 3 : CONSULTATION DU JOURNAL DÉTAILLÉ ---
-                    with st.expander(f"📖 Consulter le Journal complet de {ath_name}", expanded=False):
-                        # On récupère toutes les séances de l'athlète
-                        all_seances_ath = db.query(Seance).filter(Seance.user_id == ath_id).order_by(Seance.date.desc()).all()
-                        if all_seances_ath:
-                            for s in all_seances_ath:
-                                col_d, col_t, col_r = st.columns([1, 2, 1])
-                                col_d.write(f"**{s.date.strftime('%d/%m/%y')}**")
-                                col_t.write(f"{s.type_seance}")
-                                col_r.write(f"RPE {s.rpe}")
+                                # Affichage propre des détails
                                 if s.exercices and s.exercices not in ["[]", "None"]:
                                     try:
                                         for ex in ast.literal_eval(s.exercices):
@@ -1115,17 +1086,57 @@ if is_coach:
                                                 st.markdown(f"- **{ex.get('nom','')}** @ {ex.get('p',0)}kg")
                                     except:
                                         st.write(f"**Détails:** {s.exercices}")
+                                
+                                # Feedback
+                                existing_comment = db.query(Commentaire).filter(Commentaire.seance_id == s.id).first()
+                                def_text = existing_comment.texte if existing_comment else ""
+                                c_txt = st.text_area("📝 Ton debrief de Coach :", value=def_text, key=f"txt_{s.id}")
+                                if st.button("Enregistrer le debrief", key=f"btn_comment_{s.id}"):
+                                    if existing_comment: existing_comment.texte = c_txt
+                                    else: db.add(Commentaire(seance_id=s.id, texte=c_txt))
+                                    db.commit(); st.success("Debrief sauvegardé !"); st.rerun()
+                    else:
+                        st.info("Aucune activité récente pour cet athlète.")
+
+                    # --- ACTION 3 : CONSULTATION DU JOURNAL DÉTAILLÉ ---
+                    with st.expander(f"📖 Consulter le Journal complet de {ath_name}", expanded=False):
+                        all_seances_ath = db.query(Seance).filter(Seance.user_id == ath_id).order_by(Seance.date.desc()).all()
+                        if all_seances_ath:
+                            for s in all_seances_ath:
+                                col_d, col_t, col_r = st.columns([1, 2, 1])
+                                col_d.write(f"**{s.date.strftime('%d/%m/%y')}**")
+                                col_t.write(f"{s.type_seance}")
+                                col_r.write(f"RPE {s.rpe}")
                                 st.divider()
                         else:
                             st.info("Aucun historique disponible.")
 
-                    # --- ACTION 4 : ANALYSE DE LA CHARGE (ACWR) DE L'ATHLÈTE ---
+                    # --- ACTION 4 : ANALYSE DE LA CHARGE (ACWR) ---
                     with st.expander(f"📉 Analyser la forme et la charge de {ath_name}", expanded=False):
-                        # On récupère les données pour le calcul de charge
                         df_ath = pd.read_sql(f"SELECT date, rpe, duree FROM seances WHERE user_id = {ath_id}", engine)
                         if not df_ath.empty:
                             df_ath['date'] = pd.to_datetime(df_ath['date'])
                             df_ath['charge'] = df_ath['rpe'] * df_ath['duree']
+                            df_ath = df_ath.groupby('date')['charge'].sum().reset_index()
+                            df_ath = df_ath.set_index('date').reindex(pd.date_range(df_ath['date'].min(), today), fill_value=0).reset_index()
+                            df_ath.columns = ['date', 'charge']
+                            df_ath['aigu'] = df_ath['charge'].rolling(window=7).mean()
+                            df_ath['chronique'] = df_ath['charge'].rolling(window=28).mean()
+                            df_ath['ratio'] = df_ath['aigu'] / df_ath['chronique']
+
+                            fig_coach = go.Figure()
+                            fig_coach.add_trace(go.Scatter(x=df_ath['date'], y=df_ath['aigu'], name="Fatigue (7j)", line=dict(color='#FF4B4B')))
+                            fig_coach.add_trace(go.Scatter(x=df_ath['date'], y=df_ath['chronique'], name="Forme (28j)", line=dict(color='#4A90E2')))
+                            st.plotly_chart(fig_coach, use_container_width=True)
+                            
+                            dernier_ratio = df_ath['ratio'].iloc[-1]
+                            if 0.8 <= dernier_ratio <= 1.3: st.success(f"✅ Ratio optimal : {dernier_ratio:.2f}")
+                            elif dernier_ratio > 1.5: st.error(f"⚠️ Risque élevé : {dernier_ratio:.2f}")
+                            else: st.warning(f"ℹ️ Ratio : {dernier_ratio:.2f}")
+                        else:
+                            st.info("Pas assez de données pour calculer la charge.")
+                else:
+                    st.caption("👈 Sélectionne un athlète dans la liste pour voir ses données et interagir.")
                             
                             # Calcul de la charge aiguë (7j) et chronique (28j)
                             df_ath = df_ath.groupby('date')['charge'].sum().reset_index()
